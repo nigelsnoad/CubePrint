@@ -68,6 +68,11 @@ make bt_rfcomm
 
 ## Running the app
 
+> **First launch only:** macOS will block the app with a Gatekeeper warning if it wasn't downloaded from the App Store or a notarised source. To allow it, right-click `CubePrint.app` → **Open** → **Open** in the dialog. Alternatively, from the terminal:
+> ```bash
+> xattr -dr com.apple.quarantine CubePrint.app
+> ```
+
 Double-click `CubePrint.app`, or from the terminal:
 
 ```bash
