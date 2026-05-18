@@ -115,7 +115,11 @@ class App(tk.Tk):
         super().__init__()
         self.title('CubePrint')
         self.resizable(False, False)
-
+        # Set dock icon when running from source (bundle uses AppIcon.icns automatically)
+        if not getattr(sys, 'frozen', False):
+            _icon = PROJECT_DIR / 'docs' / 'icon.jpeg'
+            if _icon.exists():
+                self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
 
         self._all_fonts   = scan_fonts()
         self._font_map    = dict(self._all_fonts)
@@ -196,8 +200,7 @@ class App(tk.Tk):
                         command=self._schedule_preview).pack(side='left', padx=(0, 8))
         ttk.Checkbutton(style_frame, text='Italic', variable=self.italic_var,
                         command=self._schedule_preview).pack(side='left')
-        ttk.Label(style_frame, text='  (static fonts only)',
-                  foreground='#888').pack(side='left')
+        ttk.Label(style_frame, text='  (static fonts only)').pack(side='left')
 
         # --- Font size ---
         ttk.Label(outer, text='Size (pt):').grid(row=6, column=0, sticky='e', **P)
@@ -219,9 +222,9 @@ class App(tk.Tk):
         lm_frame = ttk.Frame(outer)
         lm_frame.grid(row=8, column=1, columnspan=2, sticky='w', **P)
         ttk.Entry(lm_frame, textvariable=self.length_var, width=6).pack(side='left')
-        ttk.Label(lm_frame, text='  Margin (mm):', foreground='#444').pack(side='left')
+        ttk.Label(lm_frame, text='  Margin (mm):').pack(side='left')
         ttk.Entry(lm_frame, textvariable=self.margin_var, width=6).pack(side='left')
-        ttk.Label(lm_frame, text='  (blank = defaults)', foreground='#888').pack(side='left')
+        ttk.Label(lm_frame, text='  (blank = defaults)').pack(side='left')
         self.length_var.trace_add('write', lambda *_: self._schedule_preview())
         self.margin_var.trace_add('write', lambda *_: self._schedule_preview())
 
@@ -246,9 +249,8 @@ class App(tk.Tk):
 
         # --- Status + print ---
         self.status_var = tk.StringVar(value='Ready.')
-        ttk.Label(outer, textvariable=self.status_var, width=30,
-                  foreground='#444').grid(row=11, column=0, columnspan=2,
-                                          sticky='w', padx=6, pady=6)
+        ttk.Label(outer, textvariable=self.status_var, width=30).grid(
+                  row=11, column=0, columnspan=2, sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
         btn_frame.grid(row=11, column=2, sticky='e', pady=6, padx=6)
         help_lbl = tk.Label(btn_frame, text='?', cursor='hand2')
