@@ -242,8 +242,7 @@ class App(tk.Tk):
                                           sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
         btn_frame.grid(row=11, column=2, sticky='e', pady=6, padx=6)
-        help_lbl = tk.Label(btn_frame, text='?',
-                            cursor='hand2', font=('', 11))
+        help_lbl = tk.Label(btn_frame, text='?', cursor='hand2')
         help_lbl.pack(side='left', padx=(0, 8))
         help_lbl.bind('<Button-1>', lambda _: self._open_help())
         self.file_btn = ttk.Button(btn_frame, text='Bulk Labels…',
