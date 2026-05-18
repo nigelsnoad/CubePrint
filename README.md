@@ -33,6 +33,10 @@ Three problems with the official software drove this:
 
 ---
 
+![CubePrint screenshot](docs/screenshot.png)
+
+---
+
 ## Requirements
 
 - macOS 12 or later
@@ -71,6 +75,30 @@ open CubePrint.app
 # or
 .venv/bin/python3 gui.py
 ```
+
+The first time you print, the app will ask for your printer's Bluetooth MAC address and save it for future sessions.
+
+---
+
+## Finding your printer's Bluetooth MAC address
+
+The MAC address looks like `98:6E:E8:4C:11:92`.
+
+**Option A — System Settings (easiest)**
+
+1. Turn on the PT-P300BT (hold the power button until the LED is solid blue).
+2. Open **System Settings → Bluetooth**.
+3. Under **My Devices**, find your printer (usually listed as `PT-P300BT`).
+4. Click the **ⓘ** icon to the right of the printer name.
+5. The **Address** field shows the MAC address — copy it.
+
+**Option B — Terminal**
+
+```bash
+system_profiler SPBluetoothDataType | grep -A3 "PT-P300BT"
+```
+
+Look for the `Address:` line in the output.
 
 ---
 

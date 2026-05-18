@@ -244,6 +244,10 @@ class App(tk.Tk):
                                           sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
         btn_frame.grid(row=11, column=2, sticky='e', pady=6, padx=6)
+        help_lbl = tk.Label(btn_frame, text='?', foreground='#4a90d9',
+                            cursor='hand2', font=('', 11, 'underline'))
+        help_lbl.pack(side='left', padx=(0, 8))
+        help_lbl.bind('<Button-1>', lambda _: self._open_help())
         self.file_btn = ttk.Button(btn_frame, text='Bulk Labels…',
                                    command=self._on_print_file)
         self.file_btn.pack(side='left', padx=(0, 4))
@@ -374,6 +378,10 @@ class App(tk.Tk):
     def _save_settings(self, settings):
         import json
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+    def _open_help(self):
+        import subprocess
+        subprocess.run(['open', 'https://github.com/nigelsnoad/CubePrint#finding-your-printers-bluetooth-mac-address'])
 
     def _get_printer_mac(self):
         """Return the stored printer MAC, prompting the user if not yet configured."""
