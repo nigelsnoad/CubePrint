@@ -12,7 +12,7 @@ a = Analysis(
         ('labelmaker_encode.py','.'),
         ('ptcbp.py',            '.'),
         ('ptstatus.py',         '.'),
-        ('docs/icon.jpeg',      'docs'),
+        ('docs/CubePrint Icon.jpeg', 'docs'),
         ('fonts',               'fonts'),
     ],
     hiddenimports=[],

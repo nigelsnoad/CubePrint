@@ -117,7 +117,7 @@ class App(tk.Tk):
         self.resizable(False, False)
         # Set dock icon when running from source (bundle uses AppIcon.icns automatically)
         if not getattr(sys, 'frozen', False):
-            _icon = PROJECT_DIR / 'docs' / 'icon.jpeg'
+            _icon = PROJECT_DIR / 'docs' / 'CubePrint Icon.jpeg'
             if _icon.exists():
                 self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
 
