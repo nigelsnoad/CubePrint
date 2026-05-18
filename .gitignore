@@ -159,5 +159,15 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 devices.xml
-*.png
-*.jpg
+
+# macOS
+.DS_Store
+
+# CubePrint — user-specific files (not for version control)
+templates.json
+settings.json
+labels/
+resources/
+
+# Claude Code working files
+.claude/

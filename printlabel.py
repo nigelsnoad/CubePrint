@@ -213,6 +213,11 @@ def set_args():
         type=int,
         default=75,
     )
+    p.add_argument('--tape-width', type=int, default=12, metavar='MM',
+                   help='Tape width in mm (e.g. 6 for heatshrink, 12 for standard; default: 12)')
+    p.add_argument('--media-type', choices=['laminated', 'non-laminated', 'heatshrink', 'any'],
+                   default='any',
+                   help='Tape media type. Use "any" for 3rd-party tapes (default: any)')
     return p
 
 
@@ -350,9 +355,10 @@ def main():
         print("Port '" + args.comport + "' does not seem a valid serial communication port.")        
     data = None
     if args.image is None: # not using the legacy mode
-        height_of_the_printable_area = 64  # px: number of vertical pixels of the PT-P300BT printer (9 mm)
-        height_of_the_tape = 86  # 64 px / 9 mm * 12 mm (the borders over the printable area will not be printed)
-        height_of_the_image = 88  # px (can be any value >= height_of_the_tape, but height_of_the_tape + 2 border lines is good)
+        # Scale printable area proportionally to tape width (baseline: 12mm → 64px printable, 86px tape)
+        height_of_the_printable_area = round(args.tape_width * 64 / 12)
+        height_of_the_tape = round(args.tape_width * 86 / 12)
+        height_of_the_image = height_of_the_tape + 2
 
         # Compute max TT font size to remain within height_of_the_printable_area
         font_size = 0
@@ -430,7 +436,7 @@ def main():
                                 f' instead of {height_of_the_printable_area}.')
                             break
 
-                y_position = print_border
+                y_position = print_border + max(0, (height_of_the_printable_area - font_height) // 2)
                 if args.font_scale:
                     scaled_font_size = int(
                         round(font_size * (args.font_scale / 100.0))
@@ -520,7 +526,7 @@ def main():
                                 f' instead of {height_of_the_printable_area}.')
                             break
 
-                y_position = print_border
+                y_position = print_border + max(0, (height_of_the_printable_area - font_height) // 2)
                 if args.font_scale:
                     scaled_font_size = int(
                         round(font_size * (args.font_scale / 100.0))
@@ -612,16 +618,18 @@ def main():
             # Convert the image to binary
             draw = ImageDraw.Draw(image)
 
-        if args.fixed_width:  
-            target_width_dots = int(round(args.fixed_width / 0.149))  
-            current_width = image.width  
-            if current_width < target_width_dots:  
-                # Create a new white image of target width and paste the existing image centered or left-aligned  
-                padded_image = Image.new("RGB", (target_width_dots, image.height), "white")  
-                # Example: left-aligned paste; change x_offset for centering  
-                x_offset = 0  
-                padded_image.paste(image, (x_offset, 0))  
-                image = padded_image
+        if args.fixed_width:
+            mm_per_dot = 25.4 / 180
+            target_width_dots = int(round(args.fixed_width / mm_per_dot))
+            current_width = image.width
+            if current_width > target_width_dots:
+                min_mm = current_width * mm_per_dot
+                print(f"WARNING: label text requires ~{min_mm:.0f}mm but fixed width is "
+                      f"{args.fixed_width}mm; text will be clipped.", file=sys.stderr)
+            padded_image = Image.new("RGB", (max(target_width_dots, current_width), image.height), "white")
+            x_offset = (padded_image.width - current_width) // 2 if args.center_text else 0
+            padded_image.paste(image, (x_offset, 0))
+            image = padded_image
 
         if args.lines:
             # Draw ruler (in)
@@ -763,6 +771,7 @@ def main():
     # Similar to main() in labelmaker.py
     try:
         ser = serial.Serial(args.comport)
+        import time as _time; _time.sleep(1.5)  # wait for BT connection to establish
     except serial.SerialException:
         p.error(
             'Printer on Bluetooth serial port "'
@@ -775,9 +784,9 @@ def main():
     try:
         assert data is not None
         do_print_job(ser, args, data)
-    finally:
-        # Initialize
+    except Exception:
         reset_printer(ser)
+        raise
 
 if __name__ == "__main__":
     main()

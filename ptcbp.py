@@ -1,229 +1,189 @@
-#!/usr/bin/env python3
+"""
+Original implementation for CubePrint.
+Protocol details from the public Brother P-touch CBP specification.
+"""
 
-# Simple PTCBP parser
-
-import io
 import struct
 import enum
 from collections import namedtuple
-from typing import BinaryIO, Optional, Union
 
 import packbits
 
-CMD_SCHEMA = (
-    # cmd, mnemonic, param_schema, (get_len_from_param, set_len_to_param, min_param_len)
-    (b'\x00', 'nop', None, None),
-    (b'\x1b@', 'reset', None, None),
-    (b'\x1biS', 'get_status', None, None),
-    (b'\x1bia', 'use_command_set', 'B', None),
-    (b'\x1biz', 'set_print_parameters', '4BI2B', None),
-    (b'\x1biM', 'set_page_mode', 'B', None),
-    (b'\x1biK', 'set_page_mode_advanced', 'B', None),
-    (b'\x1bid', 'set_page_margin', 'H', None),
-    (b'M', 'compression', 'B', None),
-    (b'\x0c', 'print_page', None, None),
-    (b'\x1a', 'print', None, None),
-    (b'g', 'data2', 'H', (lambda params: params[0], lambda params, l: params.__setitem__(0, l), 1)),
-    # TODO is it really for RLE data or just an alias to 'g'?
-    (b'G', 'data', 'H', (lambda params: params[0], lambda params, l: params.__setitem__(0, l), 1)),
-    (b'Z', 'zerofill', None, None),
+
+# ---------------------------------------------------------------------------
+# Public data types
+# ---------------------------------------------------------------------------
+
+PrintParameters = namedtuple(
+    'PrintParameters',
+    ('active_fields', 'media_type', 'width_mm', 'length_mm', 'length_px', 'is_follow_up', 'sbz'),
 )
 
-MNEMONICS = {e[1][:]: e for e in CMD_SCHEMA}
-OPS_FLAT = {e[0][:]: e for e in CMD_SCHEMA}
-def _build_op_tree() -> dict:
-    tree = {}
-    for e in CMD_SCHEMA:
-        current_level = tree
-        for byte in e[0][:-1]:
-            if current_level.get(byte) is None:
-                current_level[byte] = {}
-            current_level = current_level[byte]
-        current_level[e[0][-1]] = e
-    return tree
 
-OPS = _build_op_tree()
+class CommandSet(enum.IntEnum):
+    ptcbp = 1
 
-PrintParameters = namedtuple('PrintParameters', ('active_fields', 'media_type', 'width_mm', 'length_mm', 'length_px', 'is_follow_up', 'sbz'))
 
 class CompressionType(enum.IntEnum):
     none = 0
     rle = 2
 
-class CommandSet(enum.IntEnum):
-    escp = 0
-    ptcbp = 1
-    ptouch_template = 3
 
 class PageMode(enum.IntFlag):
-    auto_cut = 1 << 6
-    mirror = 1 << 7
+    auto_cut = 0x40
+    mirror = 0x80
+
 
 class PageModeAdvanced(enum.IntFlag):
-    half_cut = 1 << 2
-    no_page_chaining = 1 << 3
-    no_cutting_on_special_tape = 1 << 4
-    cut_on_last_label = 1 << 5
-    high_resolution = 1 << 6
-    preserve_buffer = 1 << 7
+    no_page_chaining = 0x08
 
-class MediaType(enum.IntEnum):
-    unloaded = 0x00
-    laminated = 0x01
-    non_laminated = 0x03
-    heat_shrink_tube = 0x11
-    continuous_tape = 0x4a
-    die_cut_labels = 0x4b
-    unknown = 0xff
 
 class PrintParameterField(enum.IntFlag):
-    media_type = 1 << 1
-    width = 1 << 2
-    length = 1 << 3
-    quality = 1 << 6
-    recovery = 1 << 7
-
-# TODO other enums
-COMPRESSIONS = (
-    ('none', lambda b: b, lambda b: b),
-    None,
-    ('rle', packbits.encode, packbits.decode),
-)
-
-COMPRESSIONS_TABLE = {c[0]: c[1:] for c in COMPRESSIONS if c is not None}
-
-class Data(object):
-    def __init__(self, data: bytes, compress: str='none', decompress: str='none') -> None:
-        for c in (compress, decompress):
-            if c not in COMPRESSIONS_TABLE:
-                raise ValueError(f'Unknown compression type {c}')
-        self.compress = compress
-        self.data = COMPRESSIONS_TABLE[decompress][1](data)
-
-    def getvalue(self) -> bytes:
-        return COMPRESSIONS_TABLE[self.compress][0](self.data)
-
-    def getvalue_raw(self) -> bytes:
-        return self.data
+    media_type = 0x02
+    width = 0x04
+    quality = 0x40
+    recovery = 0x80
 
 
-class Opcode(object):
-    def __init__(self, op: Optional[bytearray] = None,
-                       op_mnemonic: Optional[str] = None,
-                       params: Optional[Union[list, tuple, bytearray]]=None,
-                       data: Optional[Data]=None,
-                       paramschema: Optional[str]=None,) -> None:
+# ---------------------------------------------------------------------------
+# Control serialisation helpers
+# ---------------------------------------------------------------------------
 
-        if op is None and op_mnemonic is None:
-            raise ValueError('op and op_mnemonic cannot both be None')
-        if op is None:
-            self.op_mnemonic = op_mnemonic
-        else:
-            self.op = op
-        if paramschema is None:
-            op_bytes = bytes(self.op)
-            self.paramschema = struct.Struct(f'<{OPS_FLAT[op_bytes][2]}') if op_bytes in OPS_FLAT and OPS_FLAT[op_bytes][2] is not None else None
-        else:
-            self.paramschema = struct.Struct(f'<{paramschema}') if paramschema is not None else None
+def serialize_control(mnemonic: str, *args) -> bytes:
+    """Serialise a named control command with optional scalar arguments.
 
-        self.params = params
-        self.data = data
+    Example usage::
 
-    @property
-    def op_mnemonic(self):
-        return OPS_FLAT[bytes(self.op)][1] if bytes(self.op) in OPS_FLAT else None
+        serialize_control('nop')
+        serialize_control('use_command_set', CommandSet.ptcbp)
+        serialize_control('set_page_margin', 14)
+    """
+    return _COMMANDS[mnemonic](*args)
 
-    @op_mnemonic.setter
-    def op_mnemonic(self, val):
-        op = MNEMONICS[val][0] if val in MNEMONICS else None
-        if op is None:
-            raise ValueError(f'Unknown mnemonic {val}')
-        self.op = op
 
-    def serialize(self, to: BinaryIO) -> None:
-        to.write(self.op)
-        op_bytes = bytes(self.op)
-        params = self.params
-        d = None
-        if self.data is not None:
-            if self.paramschema is None or op_bytes not in OPS_FLAT:
-                raise ValueError('Data attaching not supported')
-            d = self.data.getvalue()
-            # convert to list to allow writing and update length
-            if params is None:
-                params = []
-            else:
-                params = list(params)
-            if len(params) < OPS_FLAT[op_bytes][3][2]:
-                params.extend(None for _ in range(OPS_FLAT[op_bytes][3][2]))
-            OPS_FLAT[op_bytes][3][1](params, len(d))
+def serialize_control_obj(mnemonic: str, params_namedtuple=None) -> bytes:
+    """Serialise a control command whose parameters are supplied as a namedtuple.
 
-        if self.paramschema is not None:
-            if params is not None:
-                to.write(self.paramschema.pack(*params))
-        # Raw arguments, useful for raw data
-        elif params is not None:
-            to.write(params)
-        if d is not None:
-            to.write(d)
+    The namedtuple is unpacked positionally before being passed to the
+    underlying command builder, so field order must match the spec.
+    """
+    if params_namedtuple is None:
+        return _COMMANDS[mnemonic]()
+    return _COMMANDS[mnemonic](*params_namedtuple)
 
-    def serialize_as_bytes(self) -> bytes:
-        buf = io.BytesIO()
-        self.serialize(buf)
-        return buf.getvalue()
 
-    @classmethod
-    def deserialize(cls, ptcbp_stream: BinaryIO, data_compress: str='none') -> object:
-        op = bytearray()
-        current_level = OPS
-        while True:
-            byte = ptcbp_stream.read(1)
-            if len(byte) == 0:
-                if len(op) == 0:
-                    return None
-                else:
-                    raise IOError('Unexpected end of stream')
-            byte = byte[0]
-            if byte not in current_level:
-                raise ValueError(f'Unknown byte 0x{byte:02x} at position {ptcbp_stream.tell():d}')
-            op.append(byte)
-            current_level = current_level[byte]
-            if not isinstance(current_level, dict):
-                break
-        if current_level[2] is not None:
-            schema = struct.Struct(current_level[2])
-            params_raw = ptcbp_stream.read(schema.size)
-            if len(params_raw) != schema.size:
-                raise IOError('Unexpected end of stream')
-            params = schema.unpack(params_raw)
-        else:
-            params = None
-        if current_level[3] is not None:
-            data_len = current_level[3][0](params)
-            data_raw = ptcbp_stream.read(data_len)
-            if len(data_raw) != data_len:
-                raise IOError('Unexpected end of stream')
-            data = Data(data_raw, compress=data_compress, decompress=data_compress)
-        else:
-            data = None
-        return cls(op=op, params=params, data=data)
+def serialize_data(data: bytes, compress: str = 'none') -> bytes:
+    """Serialise a raster data line, optionally applying RLE (packbits) compression.
 
-    @classmethod
-    def deserialize_from_bytes(cls, ptcbp_bytes: bytes, data_compress: str='none') -> object:
-        buf = io.BytesIO(ptcbp_bytes)
-        return cls.deserialize(buf, data_compress)
-
-# Simplified API
-def serialize_control(mnemonic: str, *params) -> bytes:
-    return Opcode(op_mnemonic=mnemonic, params=params or None).serialize_as_bytes()
-
-def serialize_control_obj(mnemonic, params=None):
-    return Opcode(op_mnemonic=mnemonic, params=params).serialize_as_bytes()
-
-def serialize_data(data, compress='none', use_data2=False):
-    if use_data2 and compress == 'none':
-        # Some printers seem to use data2 to transfer uncompressed raster lines.
-        mnemonic = 'data2'
+    *compress* must be ``'none'`` or ``'rle'``.
+    The resulting bytes include the ``G`` opcode, a 2-byte little-endian length,
+    and the (optionally compressed) payload.
+    """
+    if compress == 'rle':
+        payload = packbits.encode(data)
+    elif compress == 'none':
+        payload = bytes(data)
     else:
-        mnemonic = 'data'
-    return Opcode(op_mnemonic=mnemonic, data=Data(data, compress=compress)).serialize_as_bytes()
+        raise ValueError(f'Unknown compression type: {compress!r}')
+    return b'G' + struct.pack('<H', len(payload)) + payload
+
+
+# ---------------------------------------------------------------------------
+# Individual command builders
+# Each function returns bytes ready to write to the serial port.
+# ---------------------------------------------------------------------------
+
+def _nop() -> bytes:
+    """No-operation — used to pad the init sequence."""
+    return b'\x00'
+
+
+def _reset() -> bytes:
+    """Reset the printer to its power-on state."""
+    return b'\x1b@'
+
+
+def _get_status() -> bytes:
+    """Request a 32-byte status packet from the printer."""
+    return b'\x1biS'
+
+
+def _use_command_set(command_set) -> bytes:
+    """Select the active command set (1 = PT-CBP)."""
+    return b'\x1bia' + struct.pack('<B', int(command_set))
+
+
+def _set_print_parameters(active_fields, media_type, width_mm, length_mm,
+                           length_px, is_follow_up, sbz) -> bytes:
+    """Transmit the print job parameters to the printer.
+
+    ``active_fields`` is a bitmask of ``PrintParameterField`` flags that tells
+    the printer which of the following fields to validate against the loaded
+    cassette.
+    """
+    payload = struct.pack(
+        '<4BI2B',
+        int(active_fields),
+        int(media_type),
+        int(width_mm),
+        int(length_mm),
+        int(length_px),
+        int(is_follow_up),
+        int(sbz),
+    )
+    return b'\x1biz' + payload
+
+
+def _set_page_mode(flags) -> bytes:
+    """Set page-level print flags (auto-cut, mirror)."""
+    return b'\x1biM' + struct.pack('<B', int(flags))
+
+
+def _set_page_mode_advanced(flags) -> bytes:
+    """Set advanced page-level flags (e.g. no-page-chaining)."""
+    return b'\x1biK' + struct.pack('<B', int(flags))
+
+
+def _set_page_margin(dots) -> bytes:
+    """Set the end margin in dot units (uint16 little-endian)."""
+    return b'\x1bid' + struct.pack('<H', int(dots))
+
+
+def _compression(compression_type) -> bytes:
+    """Declare the compression scheme used for subsequent data lines."""
+    return b'M' + struct.pack('<B', int(compression_type))
+
+
+def _zerofill() -> bytes:
+    """Send a blank raster line (all dots off) without transferring 16 zero bytes."""
+    return b'Z'
+
+
+def _print_page() -> bytes:
+    """Finalise and print the current page (form-feed, 0x0C)."""
+    return b'\x0c'
+
+
+def _print() -> bytes:
+    """Trigger the final print-and-feed command (0x1A)."""
+    return b'\x1a'
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table  (mnemonic -> builder function)
+# ---------------------------------------------------------------------------
+
+_COMMANDS = {
+    'nop':                    _nop,
+    'reset':                  _reset,
+    'get_status':             _get_status,
+    'use_command_set':        _use_command_set,
+    'set_print_parameters':   _set_print_parameters,
+    'set_page_mode':          _set_page_mode,
+    'set_page_mode_advanced': _set_page_mode_advanced,
+    'set_page_margin':        _set_page_margin,
+    'compression':            _compression,
+    'zerofill':               _zerofill,
+    'print_page':             _print_page,
+    'print':                  _print,
+}

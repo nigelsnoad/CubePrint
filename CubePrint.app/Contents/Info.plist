@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>CubePrint</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.local.cubeprint</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>CubePrint</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>CubePrint uses Bluetooth to communicate with your Brother P-touch label printer.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
