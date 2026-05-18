@@ -104,7 +104,7 @@ class App(tk.Tk):
         super().__init__()
         self.title('CubePrint')
         self.resizable(False, False)
-        _icon = PROJECT_DIR / 'docs' / 'Cube Print.png'
+        _icon = PROJECT_DIR / 'docs' / 'icon.jpeg'
         if _icon.exists():
             self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
 
