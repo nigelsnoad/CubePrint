@@ -104,11 +104,9 @@ class App(tk.Tk):
         super().__init__()
         self.title('CubePrint')
         self.resizable(False, False)
-        for _icon_name in ('Cube Print.png', 'noun-printer-4631257.png'):
-            _icon = PROJECT_DIR / 'archive' / _icon_name
-            if _icon.exists():
-                self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
-                break
+        _icon = PROJECT_DIR / 'docs' / 'Cube Print.png'
+        if _icon.exists():
+            self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
 
         self._all_fonts   = scan_fonts()
         self._font_map    = dict(self._all_fonts)
