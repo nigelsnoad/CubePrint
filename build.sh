@@ -75,4 +75,7 @@ if $DO_NOTARISE; then
     rm "$ZIP"
 fi
 
+echo "==> Zipping for distribution..."
+ditto -c -k --keepParent "$APP" "dist/CubePrint.zip"
 echo "==> Done: $APP"
+echo "==> Zip:  dist/CubePrint.zip"
