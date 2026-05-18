@@ -348,12 +348,14 @@ def draw_multiline_text(
 
 
 
-def main():
+def render_image(args):
+    """Render the label image from args and return the PIL Image, or None.
+
+    Raises ValueError if the print length exceeds 49.9 cm.
+    Returns the PIL Image on success (even when --no-print is set).
+    """
     p = set_args()
-    args = p.parse_args()
-    if args.comport not in [p.device for p in list_ports.comports()]:
-        print("Port '" + args.comport + "' does not seem a valid serial communication port.")        
-    data = None
+    image = None
     if args.image is None: # not using the legacy mode
         # Scale printable area proportionally to tape width (baseline: 12mm → 64px printable, 86px tape)
         height_of_the_printable_area = round(args.tape_width * 64 / 12)
@@ -746,27 +748,44 @@ def main():
         # Check max tape length
         if print_length > 499:
             print("Print length exceeding 49.9 cm = 19.6 in")
-            quit()
+            raise ValueError("Print length exceeds 49.9 cm")
 
         # Image save and show
         if args.save:
             print(f'Saving image "{args.save}".')
             image.save(args.save)
             if args.no_print:
-                quit()
+                return image
         if args.show:
             try:
                 image.show()
             except Exception as e:
                 p.error("Cannot show image:" + repr(e))
             if not args.show_conv and args.no_print:
-                quit()
+                return image
         if args.show_conv:
             padded.show()
             if args.no_print:
-                quit()
+                return image
 
-        data = padded.tobytes()
+        # Store the raw bytes on the image object so main() can retrieve them
+        image._padded_bytes = padded.tobytes()
+
+    return image
+
+
+def main():
+    p = set_args()
+    args = p.parse_args()
+    if args.comport not in [p.device for p in list_ports.comports()]:
+        print("Port '" + args.comport + "' does not seem a valid serial communication port.")
+    try:
+        image = render_image(args)
+    except (SystemExit, ValueError) as e:
+        return
+    if image is None or args.no_print:
+        return
+    data = getattr(image, '_padded_bytes', None)
 
     # Similar to main() in labelmaker.py
     try:

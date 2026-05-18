@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
 """BTLabelPrinter — GUI for the PT-P300BT label printer."""
 
-import os, sys, subprocess, tempfile, threading
+import os, sys, subprocess, tempfile, threading, fcntl, io, contextlib
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 
-PROJECT_DIR = Path(__file__).parent.resolve()
-sys.path.insert(0, str(PROJECT_DIR))
-
-PRINTER_MAC = "98:6E:E8:4C:11:92"
-PYTHON     = str(PROJECT_DIR / '.venv/bin/python3')
-PRINTLABEL = str(PROJECT_DIR / 'printlabel.py')
-BT_SERIAL  = str(PROJECT_DIR / 'bt_serial.py')
+if getattr(sys, 'frozen', False):
+    # Running inside PyInstaller bundle
+    _RES           = Path(sys._MEIPASS)
+    PROJECT_DIR    = _RES
+    PYTHON         = sys.executable
+    PRINTLABEL     = str(_RES / 'printlabel.py')
+    BT_SERIAL      = str(_RES / 'bt_serial.py')
+    FONTS_DIR      = _RES / 'fonts'
+    _APP_SUPPORT   = Path.home() / 'Library' / 'Application Support' / 'CubePrint'
+    TEMPLATES_FILE = _APP_SUPPORT / 'templates.json'
+    SETTINGS_FILE  = _APP_SUPPORT / 'settings.json'
+else:
+    PROJECT_DIR    = Path(__file__).parent.resolve()
+    sys.path.insert(0, str(PROJECT_DIR))
+    PYTHON         = str(PROJECT_DIR / '.venv/bin/python3')
+    PRINTLABEL     = str(PROJECT_DIR / 'printlabel.py')
+    BT_SERIAL      = str(PROJECT_DIR / 'bt_serial.py')
+    FONTS_DIR      = PROJECT_DIR / 'fonts'
+    TEMPLATES_FILE = PROJECT_DIR / 'templates' / 'templates.json'
+    SETTINGS_FILE  = PROJECT_DIR / 'templates' / 'settings.json'
 
 TAPE_PRESETS = [
     ("12mm Laminated (White)",  {'tape_width': 12, 'media_type': 'laminated'}),
@@ -21,9 +34,6 @@ TAPE_PRESETS = [
 ]
 
 FONT_EXTS = {'.ttf', '.otf', '.ttc'}
-FONTS_DIR      = PROJECT_DIR / 'fonts'
-TEMPLATES_FILE = PROJECT_DIR / 'templates' / 'templates.json'
-SETTINGS_FILE  = PROJECT_DIR / 'templates' / 'settings.json'
 
 # ── font discovery ────────────────────────────────────────────────────────────
 
@@ -98,6 +108,30 @@ def find_font_variant(base_path, bold, italic):
     return base_path
 
 
+# ── render helper ─────────────────────────────────────────────────────────────
+
+def _run_render(args_list):
+    """Run printlabel rendering. In frozen mode calls in-process; otherwise subprocess."""
+    if getattr(sys, 'frozen', False):
+        sys.path.insert(0, str(PROJECT_DIR))
+        import importlib, printlabel as _pl
+        out, err = io.StringIO(), io.StringIO()
+        rc = 0
+        try:
+            parsed = _pl.set_args().parse_args(args_list[1:])  # skip script name
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                _pl.render_image(parsed)
+        except SystemExit as e:
+            rc = e.code if isinstance(e.code, int) else 0
+        except Exception as e:
+            err.write(str(e))
+            rc = 1
+        return rc, out.getvalue(), err.getvalue()
+    else:
+        r = subprocess.run(args_list, capture_output=True, timeout=10)
+        return r.returncode, r.stdout.decode(errors='replace'), r.stderr.decode(errors='replace')
+
+
 # ── main app ──────────────────────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -105,16 +139,24 @@ class App(tk.Tk):
         super().__init__()
         self.title('CubePrint')
         self.resizable(False, False)
-        for _icon_name in ('Cube Print.png', 'noun-printer-4631257.png'):
-            _icon = PROJECT_DIR / 'archive' / _icon_name
+        # Set dock icon when running from source (bundle uses AppIcon.icns automatically)
+        if not getattr(sys, 'frozen', False):
+            _icon = PROJECT_DIR / 'docs' / 'CubePrint Icon.jpeg'
             if _icon.exists():
-                self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
-                break
+                try:
+                    from AppKit import NSApplication, NSImage
+                    NSApplication.sharedApplication().setApplicationIconImage_(
+                        NSImage.alloc().initWithContentsOfFile_(str(_icon))
+                    )
+                except ImportError:
+                    self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
 
         self._all_fonts   = scan_fonts()
         self._font_map    = dict(self._all_fonts)
-        self._custom_font_paths = self._load_settings().get('custom_fonts', [])
+        _s = self._load_settings()
+        self._custom_font_paths = _s.get('custom_fonts', [])
         self._add_custom_fonts(self._custom_font_paths)
+        self._printer_mac = _s.get('printer_mac', '')
         self._after_id    = None
         self._photo       = None   # keep ref to prevent GC
         self._print_png   = None   # path reused by Print button
@@ -153,27 +195,40 @@ class App(tk.Tk):
         ttk.Separator(outer, orient='horizontal').grid(
             row=1, column=0, columnspan=3, sticky='ew', pady=(4, 2))
 
+        # --- Printer MAC ---
+        ttk.Label(outer, text='Printer:').grid(row=2, column=0, sticky='e', **P)
+        mac_frame = ttk.Frame(outer)
+        mac_frame.grid(row=2, column=1, columnspan=2, sticky='ew', **P)
+        self.mac_var = tk.StringVar(value=self._printer_mac)
+        mac_e = ttk.Entry(mac_frame, textvariable=self.mac_var, width=22)
+        mac_e.pack(side='left')
+        mac_e.bind('<FocusOut>', lambda _: self._on_mac_changed())
+        mac_e.bind('<Return>',   lambda _: self._on_mac_changed())
+        mac_help = tk.Label(mac_frame, text=' ?', cursor='hand2')
+        mac_help.pack(side='left')
+        mac_help.bind('<Button-1>', lambda _: self._open_help())
+
         # --- Tape preset ---
-        ttk.Label(outer, text='Tape:').grid(row=2, column=0, sticky='e', **P)
+        ttk.Label(outer, text='Tape:').grid(row=3, column=0, sticky='e', **P)
         self.tape_var = tk.StringVar(value=TAPE_PRESETS[0][0])
         tape_cb = ttk.Combobox(outer, textvariable=self.tape_var,
                                values=[t[0] for t in TAPE_PRESETS],
                                state='readonly', width=32)
-        tape_cb.grid(row=2, column=1, columnspan=2, sticky='ew', **P)
+        tape_cb.grid(row=3, column=1, columnspan=2, sticky='ew', **P)
         tape_cb.bind('<<ComboboxSelected>>', lambda _: self._schedule_preview())
 
         # --- Font search ---
-        ttk.Label(outer, text='Font:').grid(row=3, column=0, sticky='e', **P)
+        ttk.Label(outer, text='Font:').grid(row=4, column=0, sticky='e', **P)
         self.font_search = tk.StringVar()
         search_e = ttk.Entry(outer, textvariable=self.font_search, width=22)
-        search_e.grid(row=3, column=1, sticky='ew', **P)
+        search_e.grid(row=4, column=1, sticky='ew', **P)
         search_e.bind('<KeyRelease>', self._on_font_search)
-        ttk.Label(outer, text='🔍').grid(row=3, column=2, sticky='w')
+        ttk.Label(outer, text='🔍').grid(row=4, column=2, sticky='w')
 
         all_names = [n for n, _ in self._all_fonts]
         self.font_var = tk.StringVar(value=all_names[0] if all_names else '')
         font_row = ttk.Frame(outer)
-        font_row.grid(row=4, column=1, columnspan=2, sticky='ew', **P)
+        font_row.grid(row=5, column=1, columnspan=2, sticky='ew', **P)
         self.font_cb = ttk.Combobox(font_row, textvariable=self.font_var,
                                     values=all_names, state='readonly', width=26)
         self.font_cb.pack(side='left', fill='x', expand=True)
@@ -183,50 +238,49 @@ class App(tk.Tk):
 
         # --- Bold / Italic ---
         style_frame = ttk.Frame(outer)
-        style_frame.grid(row=5, column=1, sticky='w', **P)
+        style_frame.grid(row=6, column=1, sticky='w', **P)
         ttk.Checkbutton(style_frame, text='Bold', variable=self.bold_var,
                         command=self._schedule_preview).pack(side='left', padx=(0, 8))
         ttk.Checkbutton(style_frame, text='Italic', variable=self.italic_var,
                         command=self._schedule_preview).pack(side='left')
-        ttk.Label(style_frame, text='  (static fonts only)',
-                  foreground='#888').pack(side='left')
+        ttk.Label(style_frame, text='  (static fonts only)').pack(side='left')
 
         # --- Font size ---
-        ttk.Label(outer, text='Size (pt):').grid(row=6, column=0, sticky='e', **P)
+        ttk.Label(outer, text='Size (pt):').grid(row=7, column=0, sticky='e', **P)
         self.size_var = tk.StringVar(value='32')
         size_sp = ttk.Spinbox(outer, from_=6, to=400, textvariable=self.size_var,
                               width=7, command=lambda: self._schedule_preview())
-        size_sp.grid(row=6, column=1, sticky='w', **P)
+        size_sp.grid(row=7, column=1, sticky='w', **P)
         size_sp.bind('<KeyRelease>', lambda _: self._schedule_preview())
 
         # --- Text ---
-        ttk.Label(outer, text='Text:').grid(row=7, column=0, sticky='e', **P)
-        self.text_var = tk.StringVar(value='PI-414')
+        ttk.Label(outer, text='Text:').grid(row=8, column=0, sticky='e', **P)
+        self.text_var = tk.StringVar(value='Test')
         text_e = ttk.Entry(outer, textvariable=self.text_var, width=32)
-        text_e.grid(row=7, column=1, columnspan=2, sticky='ew', **P)
+        text_e.grid(row=8, column=1, columnspan=2, sticky='ew', **P)
         self.text_var.trace_add('write', lambda *_: self._schedule_preview())
 
         # --- Label length + margin ---
-        ttk.Label(outer, text='Length (mm):').grid(row=8, column=0, sticky='e', **P)
+        ttk.Label(outer, text='Length (mm):').grid(row=9, column=0, sticky='e', **P)
         lm_frame = ttk.Frame(outer)
-        lm_frame.grid(row=8, column=1, columnspan=2, sticky='w', **P)
+        lm_frame.grid(row=9, column=1, columnspan=2, sticky='w', **P)
         ttk.Entry(lm_frame, textvariable=self.length_var, width=6).pack(side='left')
-        ttk.Label(lm_frame, text='  Margin (mm):', foreground='#444').pack(side='left')
+        ttk.Label(lm_frame, text='  Margin (mm):').pack(side='left')
         ttk.Entry(lm_frame, textvariable=self.margin_var, width=6).pack(side='left')
-        ttk.Label(lm_frame, text='  (blank = defaults)', foreground='#888').pack(side='left')
+        ttk.Label(lm_frame, text='  (blank = defaults)').pack(side='left')
         self.length_var.trace_add('write', lambda *_: self._schedule_preview())
         self.margin_var.trace_add('write', lambda *_: self._schedule_preview())
 
         # --- Separator ---
         ttk.Separator(outer, orient='horizontal').grid(
-            row=9, column=0, columnspan=3, sticky='ew', pady=6)
+            row=10, column=0, columnspan=3, sticky='ew', pady=6)
 
         # --- Preview ---
         PREVIEW_MAX_W = 500
-        ttk.Label(outer, text='Preview:').grid(row=10, column=0, sticky='ne',
+        ttk.Label(outer, text='Preview:').grid(row=11, column=0, sticky='ne',
                                                padx=6, pady=3)
         preview_outer = ttk.Frame(outer, relief='sunken', borderwidth=1)
-        preview_outer.grid(row=10, column=1, columnspan=2, sticky='ew',
+        preview_outer.grid(row=11, column=1, columnspan=2, sticky='ew',
                            padx=0, pady=3)
         self._preview_canvas = tk.Canvas(preview_outer, background='white',
                                          width=PREVIEW_MAX_W, height=80,
@@ -238,11 +292,13 @@ class App(tk.Tk):
 
         # --- Status + print ---
         self.status_var = tk.StringVar(value='Ready.')
-        ttk.Label(outer, textvariable=self.status_var, width=30,
-                  foreground='#444').grid(row=11, column=0, columnspan=2,
-                                          sticky='w', padx=6, pady=6)
+        ttk.Label(outer, textvariable=self.status_var, width=30).grid(
+                  row=12, column=0, columnspan=2, sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
-        btn_frame.grid(row=11, column=2, sticky='e', pady=6, padx=6)
+        btn_frame.grid(row=12, column=2, sticky='e', pady=6, padx=6)
+        help_lbl = tk.Label(btn_frame, text='?', cursor='hand2')
+        help_lbl.pack(side='left', padx=(0, 8))
+        help_lbl.bind('<Button-1>', lambda _: self._open_help())
         self.file_btn = ttk.Button(btn_frame, text='Bulk Labels…',
                                    command=self._on_print_file)
         self.file_btn.pack(side='left', padx=(0, 4))
@@ -297,6 +353,7 @@ class App(tk.Tk):
 
     def _save_templates(self):
         import json
+        TEMPLATES_FILE.parent.mkdir(parents=True, exist_ok=True)
         TEMPLATES_FILE.write_text(json.dumps(self._templates, indent=2))
         self.tmpl_cb.configure(values=list(self._templates))
 
@@ -372,7 +429,37 @@ class App(tk.Tk):
 
     def _save_settings(self, settings):
         import json
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+    def _open_help(self):
+        import subprocess
+        subprocess.run(['open', 'https://github.com/nigelsnoad/CubePrint#finding-your-printers-bluetooth-mac-address'])
+
+    def _on_mac_changed(self):
+        mac = self.mac_var.get().strip()
+        self._printer_mac = mac
+        s = self._load_settings()
+        s['printer_mac'] = mac
+        self._save_settings(s)
+
+    def _get_printer_mac(self):
+        """Return the stored printer MAC, prompting the user if not yet configured."""
+        if self._printer_mac:
+            return self._printer_mac
+        from tkinter.simpledialog import askstring
+        mac = askstring(
+            'Printer MAC Address',
+            'Enter the Bluetooth MAC address of your PT-P300BT\n(e.g. 98:6E:E8:4C:11:92):',
+        )
+        if not mac:
+            return None
+        mac = mac.strip()
+        self._printer_mac = mac
+        s = self._load_settings()
+        s['printer_mac'] = mac
+        self._save_settings(s)
+        return mac
 
     def _add_custom_fonts(self, paths):
         """Register a list of font file paths, skipping any already known."""
@@ -449,22 +536,20 @@ class App(tk.Tk):
             tmp.close()
 
         try:
-            r = subprocess.run(
-                [PYTHON, PRINTLABEL,
+            rc, stdout_txt, stderr_txt = _run_render(
+                [PRINTLABEL,
                  '--tape-width', str(tape_cfg['tape_width']),
                  '--fixed-font-size', str(size),
                  *self._length_args(),
                  *self._margin_args(),
                  '-n', '-S', self._print_png,
-                 '/dev/null', font_path, text],
-                capture_output=True, timeout=10)
+                 '/dev/null', font_path, text])
 
-            if r.returncode != 0:
-                lines = r.stderr.decode(errors='replace').strip().splitlines()
+            if rc != 0:
+                lines = stderr_txt.strip().splitlines()
                 self.status_var.set((lines[-1] if lines else 'Preview error')[:60])
                 return
 
-            stderr_txt = r.stderr.decode(errors='replace').strip()
             warning = next((l for l in stderr_txt.splitlines() if 'WARNING' in l), None)
 
             img = Image.open(self._print_png)
@@ -526,6 +611,9 @@ class App(tk.Tk):
         tape_name = self.tape_var.get()
         tape_cfg  = dict(TAPE_PRESETS)[tape_name]
         png_to_print = self._print_png  # snapshot path
+        mac = self._get_printer_mac()
+        if not mac:
+            return
 
         self._printing = True
         self.print_btn.configure(state='disabled')
@@ -537,7 +625,7 @@ class App(tk.Tk):
             try:
                 r = subprocess.run(
                     [PYTHON, BT_SERIAL,
-                     '--mac', PRINTER_MAC,
+                     '--mac', mac,
                      '--tape-width', str(tape_cfg['tape_width']),
                      '--media-type', tape_cfg['media_type'],
                      *self._bt_margin_args(),
@@ -603,6 +691,10 @@ class App(tk.Tk):
             return
         font_path = find_font_variant(font_path, self.bold_var.get(), self.italic_var.get())
 
+        mac = self._get_printer_mac()
+        if not mac:
+            return
+
         total = len(labels)
         self._printing = True
         self.print_btn.configure(state='disabled')
@@ -622,24 +714,23 @@ class App(tk.Tk):
                     png = tmp.name
                     tmp.close()
                     try:
-                        r = subprocess.run(
-                            [PYTHON, PRINTLABEL,
+                        rc, _out, err_txt = _run_render(
+                            [PRINTLABEL,
                              '--tape-width', str(tape_cfg['tape_width']),
                              '--fixed-font-size', str(size),
                              *self._length_args(),
                              *self._margin_args(),
                              '-n', '-S', png,
-                             '/dev/null', font_path, text],
-                            capture_output=True, timeout=15)
-                        if r.returncode != 0:
-                            err = r.stderr.decode(errors='replace').strip().splitlines()
+                             '/dev/null', font_path, text])
+                        if rc != 0:
+                            err = err_txt.strip().splitlines()
                             msg = (err[-1] if err else 'Render error')[:60]
                             self.after(0, lambda m=msg: self.status_var.set(f'✗ {m}'))
                             return
                         chain_args = ['--no-feed'] if i < total else []
                         r2 = subprocess.run(
                             [PYTHON, BT_SERIAL,
-                             '--mac', PRINTER_MAC,
+                             '--mac', mac,
                              '--tape-width', str(tape_cfg['tape_width']),
                              '--media-type', tape_cfg['media_type'],
                              *chain_args,
@@ -668,5 +759,20 @@ class App(tk.Tk):
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
+def _acquire_lock():
+    """Return a held lock file handle, or None if another instance is running."""
+    lock_dir = Path.home() / 'Library' / 'Application Support' / 'CubePrint'
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_dir / 'instance.lock', 'w')
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fh
+    except OSError:
+        fh.close()
+        return None
+
 if __name__ == '__main__':
+    _lock = _acquire_lock()
+    if _lock is None:
+        sys.exit(0)   # another instance is already running
     App().mainloop()

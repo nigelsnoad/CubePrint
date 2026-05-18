@@ -33,7 +33,19 @@ Three problems with the official software drove this:
 
 ---
 
-## Requirements
+![CubePrint screenshot](docs/screenshot.png)
+
+---
+
+## Download
+
+Download the latest `CubePrint.zip` from the [Releases](https://github.com/nigelsnoad/CubePrint/releases) page, unzip it, and move `CubePrint.app` to your Applications folder. No Python installation required.
+
+On first launch, enter your printer's Bluetooth MAC address when prompted — it is saved for future sessions.
+
+---
+
+## Requirements (running from source)
 
 - macOS 12 or later
 - Python 3.10+
@@ -62,15 +74,35 @@ make bt_rfcomm
 
 ---
 
-## Running the app
-
-Double-click `CubePrint.app`, or from the terminal:
+## Running the app (from source)
 
 ```bash
 open CubePrint.app
 # or
 .venv/bin/python3 gui.py
 ```
+
+---
+
+## Finding your printer's Bluetooth MAC address
+
+The MAC address looks like `98:6E:E8:4C:11:92`.
+
+**Option A — System Settings (easiest)**
+
+1. Turn on the PT-P300BT (hold the power button until the LED is solid blue).
+2. Open **System Settings → Bluetooth**.
+3. Under **My Devices**, find your printer (usually listed as `PT-P300BT`).
+4. Click the **ⓘ** icon to the right of the printer name.
+5. The **Address** field shows the MAC address — copy it.
+
+**Option B — Terminal**
+
+```bash
+system_profiler SPBluetoothDataType | grep -A3 "PT-P300BT"
+```
+
+Look for the `Address:` line in the output.
 
 ---
 
@@ -190,9 +222,13 @@ CubePrint/
 ├── ptstatus.py             # Status packet parser
 ├── Makefile                # Rebuilds bt_rfcomm
 ├── requirements.txt
-├── CubePrint.app/          # Runnable macOS app bundle
-├── fonts/                  # (gitignored) drop TTF/OTF fonts here
-└── templates/              # (gitignored) saved templates and settings
+├── CubePrint.spec          # PyInstaller build spec
+├── build.sh                # Build (+ optional sign/notarise) script
+├── CubePrint.app/          # Runnable macOS app bundle (source mode)
+└── fonts/                  # (gitignored) drop TTF/OTF fonts here
+
+# When running as a built .app, settings and templates are stored at:
+# ~/Library/Application Support/CubePrint/
 ```
 
 ---
@@ -210,3 +246,9 @@ the same public specification.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Disclaimer
+
+This project was built with [Claude Code](https://claude.ai/code). The code has not been reviewed line by line by a human — use at your own risk.
