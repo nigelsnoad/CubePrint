@@ -14,7 +14,7 @@ from labelmaker_encode import encode_raster_transfer, read_png
 from labelmaker import configure_printer, MEDIA_TYPE_MAP
 import ptcbp, ptstatus
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 BT_RFCOMM_BIN = os.path.join(SCRIPT_DIR, 'bt_rfcomm')
 
 

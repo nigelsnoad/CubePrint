@@ -7,12 +7,26 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 
-PROJECT_DIR = Path(__file__).parent.resolve()
-sys.path.insert(0, str(PROJECT_DIR))
-
-PYTHON     = str(PROJECT_DIR / '.venv/bin/python3')
-PRINTLABEL = str(PROJECT_DIR / 'printlabel.py')
-BT_SERIAL  = str(PROJECT_DIR / 'bt_serial.py')
+if getattr(sys, 'frozen', False):
+    # Running inside PyInstaller bundle
+    _RES           = Path(sys._MEIPASS)
+    PROJECT_DIR    = _RES
+    PYTHON         = sys.executable
+    PRINTLABEL     = str(_RES / 'printlabel.py')
+    BT_SERIAL      = str(_RES / 'bt_serial.py')
+    FONTS_DIR      = _RES / 'fonts'
+    _APP_SUPPORT   = Path.home() / 'Library' / 'Application Support' / 'CubePrint'
+    TEMPLATES_FILE = _APP_SUPPORT / 'templates.json'
+    SETTINGS_FILE  = _APP_SUPPORT / 'settings.json'
+else:
+    PROJECT_DIR    = Path(__file__).parent.resolve()
+    sys.path.insert(0, str(PROJECT_DIR))
+    PYTHON         = str(PROJECT_DIR / '.venv/bin/python3')
+    PRINTLABEL     = str(PROJECT_DIR / 'printlabel.py')
+    BT_SERIAL      = str(PROJECT_DIR / 'bt_serial.py')
+    FONTS_DIR      = PROJECT_DIR / 'fonts'
+    TEMPLATES_FILE = PROJECT_DIR / 'templates' / 'templates.json'
+    SETTINGS_FILE  = PROJECT_DIR / 'templates' / 'settings.json'
 
 TAPE_PRESETS = [
     ("12mm Laminated (White)",  {'tape_width': 12, 'media_type': 'laminated'}),
@@ -20,9 +34,6 @@ TAPE_PRESETS = [
 ]
 
 FONT_EXTS = {'.ttf', '.otf', '.ttc'}
-FONTS_DIR      = PROJECT_DIR / 'fonts'
-TEMPLATES_FILE = PROJECT_DIR / 'templates' / 'templates.json'
-SETTINGS_FILE  = PROJECT_DIR / 'templates' / 'settings.json'
 
 # ── font discovery ────────────────────────────────────────────────────────────
 
@@ -297,6 +308,7 @@ class App(tk.Tk):
 
     def _save_templates(self):
         import json
+        TEMPLATES_FILE.parent.mkdir(parents=True, exist_ok=True)
         TEMPLATES_FILE.write_text(json.dumps(self._templates, indent=2))
         self.tmpl_cb.configure(values=list(self._templates))
 
@@ -372,6 +384,7 @@ class App(tk.Tk):
 
     def _save_settings(self, settings):
         import json
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
 
     def _open_help(self):
