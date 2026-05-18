@@ -37,7 +37,15 @@ Three problems with the official software drove this:
 
 ---
 
-## Requirements
+## Download
+
+Download the latest `CubePrint.zip` from the [Releases](https://github.com/nigelsnoad/CubePrint/releases) page, unzip it, and move `CubePrint.app` to your Applications folder. No Python installation required.
+
+On first launch, enter your printer's Bluetooth MAC address when prompted — it is saved for future sessions.
+
+---
+
+## Requirements (running from source)
 
 - macOS 12 or later
 - Python 3.10+
@@ -66,22 +74,13 @@ make bt_rfcomm
 
 ---
 
-## Running the app
-
-> **First launch only:** macOS will block the app with a Gatekeeper warning if it wasn't downloaded from the App Store or a notarised source. To allow it, right-click `CubePrint.app` → **Open** → **Open** in the dialog. Alternatively, from the terminal:
-> ```bash
-> xattr -dr com.apple.quarantine CubePrint.app
-> ```
-
-Double-click `CubePrint.app`, or from the terminal:
+## Running the app (from source)
 
 ```bash
 open CubePrint.app
 # or
 .venv/bin/python3 gui.py
 ```
-
-The first time you print, the app will ask for your printer's Bluetooth MAC address and save it for future sessions.
 
 ---
 
@@ -223,9 +222,13 @@ CubePrint/
 ├── ptstatus.py             # Status packet parser
 ├── Makefile                # Rebuilds bt_rfcomm
 ├── requirements.txt
-├── CubePrint.app/          # Runnable macOS app bundle
-├── fonts/                  # (gitignored) drop TTF/OTF fonts here
-└── templates/              # (gitignored) saved templates and settings
+├── CubePrint.spec          # PyInstaller build spec
+├── build.sh                # Build (+ optional sign/notarise) script
+├── CubePrint.app/          # Runnable macOS app bundle (source mode)
+└── fonts/                  # (gitignored) drop TTF/OTF fonts here
+
+# When running as a built .app, settings and templates are stored at:
+# ~/Library/Application Support/CubePrint/
 ```
 
 ---
@@ -243,3 +246,9 @@ the same public specification.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Disclaimer
+
+This project was built with [Claude Code](https://claude.ai/code). The code has not been reviewed line by line by a human — use at your own risk.

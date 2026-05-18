@@ -58,6 +58,7 @@ app = BUNDLE(
         'CFBundleVersion':                 '1.0.0',
         'LSMinimumSystemVersion':          '12.0',
         'NSHighResolutionCapable':         True,
+        'NSPrincipalClass':                'NSApplication',
         'NSBluetoothAlwaysUsageDescription':
             'CubePrint uses Bluetooth to communicate with your Brother P-touch label printer.',
     },
