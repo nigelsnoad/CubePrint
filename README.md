@@ -1,5 +1,7 @@
 # CubePrint
 
+<img src="docs/CubePrint Icon.jpeg" width="64" align="left" style="margin-right:12px"/>
+
 A macOS app and command-line toolkit for printing labels on the **Brother PT-P300BT** ("P-touch Cube") Bluetooth label printer.
 
 ---
