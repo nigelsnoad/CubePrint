@@ -163,11 +163,11 @@ devices.xml
 # macOS
 .DS_Store
 
-# CubePrint — user-specific files (not for version control)
-templates.json
-settings.json
+# CubePrint — user-specific / local-only directories
+fonts/
+templates/
+archive/
 labels/
-resources/
 
 # Claude Code working files
 .claude/

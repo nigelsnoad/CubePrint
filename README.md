@@ -6,9 +6,15 @@ A macOS app and command-line toolkit for printing labels on the **Brother PT-P30
 
 ## Why this exists
 
-The PT-P300BT communicates over Classic Bluetooth (SPP/RFCOMM). On modern macOS the virtual serial port (`/dev/cu.PT-P300BT*`) is write-only — reads return nothing, so you never get a status response and print jobs silently fail.
+Three problems with the official software drove this:
 
-[Ircama's PT-P300BT](https://github.com/Ircama/PT-P300BT) provided invaluable inspiration and protocol documentation, but it couldn't run on macOS due to this Bluetooth limitation. CubePrint is a ground-up macOS implementation that works around the problem with a small Swift helper (`bt_rfcomm`) that talks directly to `IOBluetooth` RFCOMM, giving true bidirectional communication. On top of that sits a native macOS `.app` with live label preview, font picker, templates, and batch printing.
+1. **Brother's P-Touch Mac app doesn't see the printer.** The PT-P300BT connects over Classic Bluetooth, and Brother's macOS app simply never finds it.
+
+2. **The Brother iOS app locks you to Brother-branded tape.** It refuses to print if it detects non-OEM tape — which rules out cheap third-party TZe rolls and, critically, heatshrink tube (HS-211) for wire labelling.
+
+3. **The macOS Bluetooth serial port is write-only.** Even when you work around the app and drive the printer directly via `/dev/cu.PT-P300BT*`, reads return nothing — no status response, and print jobs silently fail.
+
+[Ircama's PT-P300BT](https://github.com/Ircama/PT-P300BT) provided invaluable inspiration and protocol documentation, but it couldn't run on macOS due to problem 3. CubePrint is a ground-up macOS implementation that solves all three: a small Swift helper (`bt_rfcomm`) talks directly to `IOBluetooth` RFCOMM for true bidirectional communication, and the printer configuration deliberately passes `any` as the media type so any tape — OEM or otherwise — just works.
 
 ---
 
@@ -73,13 +79,15 @@ open CubePrint.app
 ### System fonts
 The font picker searches `/System/Library/Fonts`, `/Library/Fonts`, and `~/Library/Fonts` automatically. Type in the search box to filter.
 
-### Bundled font — Google Sans Code
-`Google_Sans_Code/static/` contains eight static variants (Regular, Bold, Italic, BoldItalic × Mono and Proportional). These are included under the [SIL Open Font Licence 1.1](Google_Sans_Code/OFL.txt).
+### Local fonts directory
+Create a `fonts/` folder in the project root and drop any TTF/OTF files (or subdirectories) there — they will appear in the picker automatically on next launch.
 
-### Custom fonts
-Click **Browse…** next to the font picker to load any TTF, OTF, or TTC file from anywhere on your Mac. The path is remembered and the font reappears on next launch.
+[Google Sans Code](https://fonts.google.com/specimen/Google+Sans+Code) works well for labels. Download the static ZIP, unzip it into `fonts/Google_Sans_Code/`, and the Regular/Bold/Italic/BoldItalic variants will appear in the picker.
 
-> **Static fonts only.** Variable-font `.ttf` files (the kind with a `fvar` table) are not supported — Pillow's `ImageFont.truetype()` cannot use them. Download the "Static" zip from Google Fonts, or pick a traditional single-weight TTF.
+### Custom font browser
+Click **Browse…** next to the font picker to load any TTF, OTF, or TTC file from anywhere on your Mac. The path is remembered in `templates/settings.json` and the font reappears on next launch.
+
+> **Static fonts only.** Variable-font `.ttf` files (the kind with a `fvar` table) are not supported — Pillow's `ImageFont.truetype()` cannot use them. Download the "Static" zip from Google Fonts, or use a traditional single-weight TTF.
 
 Bold/Italic variants are resolved automatically: if you load `MyFont-Regular.ttf` and tick **Bold**, CubePrint looks for `MyFont-Bold.ttf` in the same folder.
 
@@ -182,8 +190,9 @@ CubePrint/
 ├── ptstatus.py             # Status packet parser
 ├── Makefile                # Rebuilds bt_rfcomm
 ├── requirements.txt
-├── Google_Sans_Code/       # Bundled font (OFL)
-└── CubePrint.app/          # Runnable macOS app bundle
+├── CubePrint.app/          # Runnable macOS app bundle
+├── fonts/                  # (gitignored) drop TTF/OTF fonts here
+└── templates/              # (gitignored) saved templates and settings
 ```
 
 ---

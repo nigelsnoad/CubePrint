@@ -21,8 +21,9 @@ TAPE_PRESETS = [
 ]
 
 FONT_EXTS = {'.ttf', '.otf', '.ttc'}
-TEMPLATES_FILE = PROJECT_DIR / 'templates.json'
-SETTINGS_FILE  = PROJECT_DIR / 'settings.json'
+FONTS_DIR      = PROJECT_DIR / 'fonts'
+TEMPLATES_FILE = PROJECT_DIR / 'templates' / 'templates.json'
+SETTINGS_FILE  = PROJECT_DIR / 'templates' / 'settings.json'
 
 # ── font discovery ────────────────────────────────────────────────────────────
 
@@ -40,7 +41,9 @@ def _scan_dir(d, results, seen):
 
 def scan_fonts():
     results, seen = [], set()
-    static = PROJECT_DIR / 'Google_Sans_Code/static'
+    # Bundled / user-dropped fonts in the local fonts/ directory
+    # Special-case display names for the included Google Sans Code variants
+    static = FONTS_DIR / 'Google_Sans_Code' / 'static'
     for name, stem in [
         ('Google Sans Code',      'GoogleSansCode-Regular'),
         ('Google Sans Code Prop', 'GoogleSansCode_Proportional-Regular'),
@@ -49,6 +52,14 @@ def scan_fonts():
         if p.exists():
             results.append((name, str(p)))
             seen.add(name)
+    # Any other fonts dropped into fonts/ (excluding the Google_Sans_Code subtree
+    # already handled above)
+    if FONTS_DIR.is_dir():
+        for sub in sorted(FONTS_DIR.iterdir()):
+            if sub.name == 'Google_Sans_Code':
+                continue  # already handled
+            _scan_dir(sub if sub.is_dir() else sub.parent, results, seen)
+    # System fonts
     for d in ('/System/Library/Fonts', '/Library/Fonts',
               str(Path.home() / 'Library/Fonts')):
         _scan_dir(d, results, seen)
@@ -95,7 +106,7 @@ class App(tk.Tk):
         self.title('CubePrint')
         self.resizable(False, False)
         for _icon_name in ('Cube Print.png', 'noun-printer-4631257.png'):
-            _icon = PROJECT_DIR / _icon_name
+            _icon = PROJECT_DIR / 'archive' / _icon_name
             if _icon.exists():
                 self.iconphoto(True, ImageTk.PhotoImage(Image.open(_icon).resize((64, 64))))
                 break
