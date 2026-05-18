@@ -204,6 +204,8 @@ class App(tk.Tk):
         mac_e.pack(side='left')
         mac_e.bind('<FocusOut>', lambda _: self._on_mac_changed())
         mac_e.bind('<Return>',   lambda _: self._on_mac_changed())
+        ttk.Label(mac_frame, text='  Enter MAC address from Bluetooth System Settings after connecting printer',
+                  foreground='gray').pack(side='left')
         mac_help = tk.Label(mac_frame, text=' ?', cursor='hand2')
         mac_help.pack(side='left')
         mac_help.bind('<Button-1>', lambda _: self._open_help())
