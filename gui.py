@@ -10,7 +10,6 @@ from PIL import Image, ImageTk
 PROJECT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(PROJECT_DIR))
 
-PRINTER_MAC = "98:6E:E8:4C:11:92"
 PYTHON     = str(PROJECT_DIR / '.venv/bin/python3')
 PRINTLABEL = str(PROJECT_DIR / 'printlabel.py')
 BT_SERIAL  = str(PROJECT_DIR / 'bt_serial.py')
@@ -113,8 +112,10 @@ class App(tk.Tk):
 
         self._all_fonts   = scan_fonts()
         self._font_map    = dict(self._all_fonts)
-        self._custom_font_paths = self._load_settings().get('custom_fonts', [])
+        _s = self._load_settings()
+        self._custom_font_paths = _s.get('custom_fonts', [])
         self._add_custom_fonts(self._custom_font_paths)
+        self._printer_mac = _s.get('printer_mac', '')
         self._after_id    = None
         self._photo       = None   # keep ref to prevent GC
         self._print_png   = None   # path reused by Print button
@@ -201,7 +202,7 @@ class App(tk.Tk):
 
         # --- Text ---
         ttk.Label(outer, text='Text:').grid(row=7, column=0, sticky='e', **P)
-        self.text_var = tk.StringVar(value='PI-414')
+        self.text_var = tk.StringVar(value='Test')
         text_e = ttk.Entry(outer, textvariable=self.text_var, width=32)
         text_e.grid(row=7, column=1, columnspan=2, sticky='ew', **P)
         self.text_var.trace_add('write', lambda *_: self._schedule_preview())
@@ -374,6 +375,24 @@ class App(tk.Tk):
         import json
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
 
+    def _get_printer_mac(self):
+        """Return the stored printer MAC, prompting the user if not yet configured."""
+        if self._printer_mac:
+            return self._printer_mac
+        from tkinter.simpledialog import askstring
+        mac = askstring(
+            'Printer MAC Address',
+            'Enter the Bluetooth MAC address of your PT-P300BT\n(e.g. 98:6E:E8:4C:11:92):',
+        )
+        if not mac:
+            return None
+        mac = mac.strip()
+        self._printer_mac = mac
+        s = self._load_settings()
+        s['printer_mac'] = mac
+        self._save_settings(s)
+        return mac
+
     def _add_custom_fonts(self, paths):
         """Register a list of font file paths, skipping any already known."""
         for path in paths:
@@ -526,6 +545,9 @@ class App(tk.Tk):
         tape_name = self.tape_var.get()
         tape_cfg  = dict(TAPE_PRESETS)[tape_name]
         png_to_print = self._print_png  # snapshot path
+        mac = self._get_printer_mac()
+        if not mac:
+            return
 
         self._printing = True
         self.print_btn.configure(state='disabled')
@@ -537,7 +559,7 @@ class App(tk.Tk):
             try:
                 r = subprocess.run(
                     [PYTHON, BT_SERIAL,
-                     '--mac', PRINTER_MAC,
+                     '--mac', mac,
                      '--tape-width', str(tape_cfg['tape_width']),
                      '--media-type', tape_cfg['media_type'],
                      *self._bt_margin_args(),
@@ -603,6 +625,10 @@ class App(tk.Tk):
             return
         font_path = find_font_variant(font_path, self.bold_var.get(), self.italic_var.get())
 
+        mac = self._get_printer_mac()
+        if not mac:
+            return
+
         total = len(labels)
         self._printing = True
         self.print_btn.configure(state='disabled')
@@ -639,7 +665,7 @@ class App(tk.Tk):
                         chain_args = ['--no-feed'] if i < total else []
                         r2 = subprocess.run(
                             [PYTHON, BT_SERIAL,
-                             '--mac', PRINTER_MAC,
+                             '--mac', mac,
                              '--tape-width', str(tape_cfg['tape_width']),
                              '--media-type', tape_cfg['media_type'],
                              *chain_args,

@@ -14,7 +14,6 @@ from labelmaker_encode import encode_raster_transfer, read_png
 from labelmaker import configure_printer, MEDIA_TYPE_MAP
 import ptcbp, ptstatus
 
-PRINTER_MAC = "98:6E:E8:4C:11:92"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BT_RFCOMM_BIN = os.path.join(SCRIPT_DIR, 'bt_rfcomm')
 
@@ -126,10 +125,9 @@ def do_print_job_swift(mac, data, tape_width=12, media_type_name='any',
 
 if __name__ == '__main__':
     import argparse
-    from printlabel import set_args as pl_set_args
 
     p = argparse.ArgumentParser(description='Print to PT-P300BT via bt_rfcomm Swift helper')
-    p.add_argument('--mac', default=PRINTER_MAC)
+    p.add_argument('--mac', required=True, help='Printer Bluetooth MAC address')
     p.add_argument('--tape-width', type=int, default=12)
     p.add_argument('--media-type', choices=list(MEDIA_TYPE_MAP), default='any')
     p.add_argument('-n', '--no-print', action='store_true')

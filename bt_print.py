@@ -15,9 +15,6 @@ from labelmaker_encode import encode_raster_transfer
 from labelmaker import configure_printer, reset_printer, MEDIA_TYPE_MAP
 import ptcbp
 
-PRINTER_MAC = "98:6E:E8:4C:11:92"
-
-
 class RFCOMMDelegate(NSObject):
     """Receives callbacks from the IOBluetooth RFCOMM channel."""
 
@@ -273,7 +270,7 @@ if __name__ == '__main__':
     from labelmaker_encode import read_png
 
     p = argparse.ArgumentParser(description='Print to PT-P300BT via IOBluetooth RFCOMM')
-    p.add_argument('--mac', default=PRINTER_MAC, help='Printer Bluetooth MAC address')
+    p.add_argument('--mac', required=True, help='Printer Bluetooth MAC address')
     p.add_argument('--tape-width', type=int, default=12)
     p.add_argument('--media-type', choices=list(MEDIA_TYPE_MAP), default='any')
     p.add_argument('-n', '--no-print', action='store_true')
