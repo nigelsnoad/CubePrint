@@ -117,7 +117,12 @@ def do_print_job_swift(mac, data, tape_width=12, media_type_name='any',
         completion = ch.send_and_recv(n_response=32, read_timeout=12.0)
         if len(completion) == 32:
             ptstatus.print_status(ptstatus.unpack_status(completion))
-        print("=> Done.")
+            print("=> Done.")
+        else:
+            raise RuntimeError(
+                f"No completion response from printer ({len(completion)}/32 bytes). "
+                "Check the printer is on, connected in Bluetooth System Settings, and has tape loaded."
+            )
     else:
         ch.send_and_recv(n_response=0)
         print("=> Image sent (no-print mode).")
