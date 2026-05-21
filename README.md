@@ -101,10 +101,10 @@ The MAC address looks like `98:6E:E8:4C:11:92`.
 **Option B — Terminal**
 
 ```bash
-system_profiler SPBluetoothDataType | grep -A3 "PT-P300BT"
+system_profiler SPBluetoothDataType | grep -E "PT-P300|Address" | grep -A1 "PT-P300"
 ```
 
-Look for the `Address:` line in the output.
+Look for the `Address:` line in the output. Or use the **Find…** button in the app — it runs this automatically and fills the field for you.
 
 ---
 

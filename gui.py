@@ -204,8 +204,9 @@ class App(tk.Tk):
         mac_e.pack(side='left')
         mac_e.bind('<FocusOut>', lambda _: self._on_mac_changed())
         mac_e.bind('<Return>',   lambda _: self._on_mac_changed())
-        ttk.Label(mac_frame, text='  Enter MAC address from Bluetooth System Settings after connecting printer',
-                  foreground='gray').pack(side='left')
+        find_btn = ttk.Button(mac_frame, text='Find…', width=6,
+                              command=self._find_printer_mac)
+        find_btn.pack(side='left', padx=(4, 0))
         mac_help = tk.Label(mac_frame, text=' ?', cursor='hand2')
         mac_help.pack(side='left')
         mac_help.bind('<Button-1>', lambda _: self._open_help())
@@ -433,6 +434,38 @@ class App(tk.Tk):
         import json
         SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+
+    def _find_printer_mac(self):
+        """Run system_profiler to find paired PT-P300BT and fill the MAC field."""
+        try:
+            result = subprocess.run(
+                ['system_profiler', 'SPBluetoothDataType'],
+                capture_output=True, text=True, timeout=10)
+            lines = result.stdout.splitlines()
+            # Find device sections containing "PT-P300" and extract Address
+            mac = None
+            in_device = False
+            for line in lines:
+                if 'PT-P300' in line or 'PT-P' in line:
+                    in_device = True
+                if in_device and 'Address:' in line:
+                    mac = line.split('Address:')[-1].strip()
+                    break
+                if in_device and line.strip() == '':
+                    in_device = False
+        except Exception:
+            mac = None
+
+        if mac:
+            self.mac_var.set(mac)
+            self._on_mac_changed()
+            self.status_var.set(f'Found printer: {mac}')
+        else:
+            messagebox.showinfo(
+                'Printer not found',
+                'No PT-P300BT found in Bluetooth devices.\n\n'
+                'Make sure the printer is powered on and paired in\n'
+                'System Settings → Bluetooth, then try again.')
 
     def _open_help(self):
         import subprocess
