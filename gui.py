@@ -132,6 +132,42 @@ def _run_render(args_list):
         return r.returncode, r.stdout.decode(errors='replace'), r.stderr.decode(errors='replace')
 
 
+def _run_print(args_list):
+    """Run bt_serial print job. In frozen mode calls in-process; otherwise subprocess."""
+    if getattr(sys, 'frozen', False):
+        sys.path.insert(0, str(PROJECT_DIR))
+        import bt_serial as _bs
+        from labelmaker_encode import read_png
+        import argparse
+        p = argparse.ArgumentParser()
+        p.add_argument('--mac', required=True)
+        p.add_argument('--tape-width', type=int, default=12)
+        p.add_argument('--media-type', default='any')
+        p.add_argument('-F', '--no-feed', action='store_true')
+        p.add_argument('-m', '--end-margin', type=int, default=0)
+        p.add_argument('-i', '--image')
+        args = p.parse_args(args_list[1:])
+        out, err = io.StringIO(), io.StringIO()
+        rc = 0
+        try:
+            data = read_png(args.image)
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                _bs.do_print_job_swift(
+                    args.mac, data,
+                    tape_width=args.tape_width,
+                    media_type_name=args.media_type,
+                    no_feed=args.no_feed,
+                    end_margin=args.end_margin,
+                )
+        except Exception as e:
+            err.write(str(e))
+            rc = 1
+        return rc, out.getvalue(), err.getvalue()
+    else:
+        r = subprocess.run(args_list, capture_output=True, text=True, timeout=60)
+        return r.returncode, r.stdout, r.stderr
+
+
 # ── main app ──────────────────────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -658,18 +694,17 @@ class App(tk.Tk):
 
         def worker():
             try:
-                r = subprocess.run(
-                    [PYTHON, BT_SERIAL,
+                rc, _, err_txt = _run_print(
+                    [BT_SERIAL,
                      '--mac', mac,
                      '--tape-width', str(tape_cfg['tape_width']),
                      '--media-type', tape_cfg['media_type'],
                      *self._bt_margin_args(),
-                     '-i', png_to_print],
-                    capture_output=True, text=True, timeout=60)
-                if r.returncode == 0:
+                     '-i', png_to_print])
+                if rc == 0:
                     self.after(0, lambda: self.status_var.set('✓ Printed!'))
                 else:
-                    lines = r.stderr.strip().splitlines()
+                    lines = err_txt.strip().splitlines()
                     msg = (lines[-1] if lines else 'Print failed')[:60]
                     self.after(0, lambda: self.status_var.set(f'✗ {msg}'))
             except subprocess.TimeoutExpired:
@@ -763,17 +798,16 @@ class App(tk.Tk):
                             self.after(0, lambda m=msg: self.status_var.set(f'✗ {m}'))
                             return
                         chain_args = ['--no-feed'] if i < total else []
-                        r2 = subprocess.run(
-                            [PYTHON, BT_SERIAL,
+                        rc2, _, err2_txt = _run_print(
+                            [BT_SERIAL,
                              '--mac', mac,
                              '--tape-width', str(tape_cfg['tape_width']),
                              '--media-type', tape_cfg['media_type'],
                              *chain_args,
                              *self._bt_margin_args(),
-                             '-i', png],
-                            capture_output=True, text=True, timeout=60)
-                        if r2.returncode != 0:
-                            err2 = r2.stderr.strip().splitlines()
+                             '-i', png])
+                        if rc2 != 0:
+                            err2 = err2_txt.strip().splitlines()
                             msg = (err2[-1] if err2 else 'Print failed')[:60]
                             self.after(0, lambda m=msg: self.status_var.set(f'✗ {m}'))
                             return
