@@ -29,8 +29,9 @@ Three problems with the official software drove this:
 - **Tape presets** — 12 mm laminated and 6 mm heatshrink (HS-211) out of the box
 - **Fixed label length** — set an exact length in mm with centred text
 - **Margin control** — configure leading/trailing margin in mm (important for heatshrink tube)
-- **Templates** — save and reload any combination of settings
-- **Batch printing** — load a `.txt` file (one label per line), confirm count, print the whole run with minimal tape waste between labels
+- **Wire Label mode** — prints the same text rotated 90° at both ends of the label for wrapping around a wire; text auto-wraps to fit within the tape width; configurable total length (default 22 mm)
+- **Templates** — save and reload any combination of settings, including wire label mode
+- **Batch printing** — load a `.txt` file (one label per line), confirm count, print the whole run with minimal tape waste; opens in `~/Documents` by default and remembers the last-used folder
 - **`bt_rfcomm` Swift bridge** — handles the macOS Classic Bluetooth gap; compiled binary included, source provided to rebuild
 
 ---

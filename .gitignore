@@ -176,3 +176,6 @@ labels/
 
 # Claude Code working files
 .claude/
+
+# Private build / credentials docs — keep off GitHub
+PRIVATE_BUILD.md
