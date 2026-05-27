@@ -54,8 +54,8 @@ app = BUNDLE(
     bundle_identifier='com.local.cubeprint',
     info_plist={
         'CFBundleName':                    'CubePrint',
-        'CFBundleShortVersionString':      '1.0.0',
-        'CFBundleVersion':                 '1.0.0',
+        'CFBundleShortVersionString':      '1.0.4',
+        'CFBundleVersion':                 '1.0.4',
         'LSMinimumSystemVersion':          '12.0',
         'NSHighResolutionCapable':         True,
         'NSPrincipalClass':                'NSApplication',
