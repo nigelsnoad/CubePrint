@@ -303,6 +303,8 @@ class App(tk.Tk):
         self._custom_font_paths = _s.get('custom_fonts', [])
         self._add_custom_fonts(self._custom_font_paths)
         self._printer_mac = _s.get('printer_mac', '')
+        self._last_labels_dir = _s.get('last_labels_dir',
+                                       str(Path.home() / 'Documents'))
         self._after_id    = None
         self._photo       = None   # keep ref to prevent GC
         self._print_png   = None   # path reused by Print button
@@ -892,14 +894,18 @@ class App(tk.Tk):
     def _on_print_file(self):
         if self._printing:
             return
-        labels_dir = PROJECT_DIR / 'labels'
         path = filedialog.askopenfilename(
             title='Choose label list (.txt)',
             filetypes=[('Text files', '*.txt'), ('All files', '*.*')],
-            initialdir=str(labels_dir) if labels_dir.is_dir() else str(PROJECT_DIR),
+            initialdir=self._last_labels_dir,
         )
         if not path:
             return
+        # Remember this folder for next time
+        self._last_labels_dir = str(Path(path).parent)
+        s = self._load_settings()
+        s['last_labels_dir'] = self._last_labels_dir
+        self._save_settings(s)
         lines = [l.strip() for l in Path(path).read_text(encoding='utf-8').splitlines()
                  if l.strip()]
         if not lines:
