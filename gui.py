@@ -425,7 +425,7 @@ class App(tk.Tk):
         lm_frame = ttk.Frame(outer)
         lm_frame.grid(row=9, column=1, columnspan=2, sticky='w', **P)
         ttk.Entry(lm_frame, textvariable=self.length_var, width=6).pack(side='left')
-        ttk.Label(lm_frame, text='  Margin (mm):').pack(side='left')
+        ttk.Label(lm_frame, text='  Margin/cut gap (mm):').pack(side='left')
         ttk.Entry(lm_frame, textvariable=self.margin_var, width=6).pack(side='left')
         ttk.Label(lm_frame, text='  (blank = defaults)').pack(side='left')
         self.length_var.trace_add('write', lambda *_: self._schedule_preview())
