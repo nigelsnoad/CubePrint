@@ -111,7 +111,11 @@ def find_font_variant(base_path, bold, italic):
 # ── render helper ─────────────────────────────────────────────────────────────
 
 def _run_render(args_list):
-    """Run printlabel rendering. In frozen mode calls in-process; otherwise subprocess."""
+    """Run printlabel rendering. In frozen mode calls in-process; otherwise subprocess.
+
+    args_list[0] is the script path (used as argv[0] / skipped in frozen mode).
+    In subprocess mode PYTHON is prepended so the script runs as `python3 script.py …`.
+    """
     if getattr(sys, 'frozen', False):
         sys.path.insert(0, str(PROJECT_DIR))
         import importlib, printlabel as _pl
@@ -128,12 +132,15 @@ def _run_render(args_list):
             rc = 1
         return rc, out.getvalue(), err.getvalue()
     else:
-        r = subprocess.run(args_list, capture_output=True, timeout=10)
+        r = subprocess.run([PYTHON] + args_list, capture_output=True, timeout=10)
         return r.returncode, r.stdout.decode(errors='replace'), r.stderr.decode(errors='replace')
 
 
 def _run_print(args_list):
-    """Run bt_serial print job. In frozen mode calls in-process; otherwise subprocess."""
+    """Run bt_serial print job. In frozen mode calls in-process; otherwise subprocess.
+
+    args_list[0] is the script path. In subprocess mode PYTHON is prepended.
+    """
     if getattr(sys, 'frozen', False):
         sys.path.insert(0, str(PROJECT_DIR))
         import bt_serial as _bs
@@ -164,7 +171,7 @@ def _run_print(args_list):
             rc = 1
         return rc, out.getvalue(), err.getvalue()
     else:
-        r = subprocess.run(args_list, capture_output=True, text=True, timeout=60)
+        r = subprocess.run([PYTHON] + args_list, capture_output=True, text=True, timeout=60)
         return r.returncode, r.stdout, r.stderr
 
 
