@@ -457,8 +457,8 @@ class App(tk.Tk):
 
         # --- Status + print ---
         self.status_var = tk.StringVar(value='Ready.')
-        ttk.Label(outer, textvariable=self.status_var, width=30).grid(
-                  row=13, column=0, columnspan=2, sticky='w', padx=6, pady=6)
+        self._status_lbl = ttk.Label(outer, textvariable=self.status_var, width=40)
+        self._status_lbl.grid(row=13, column=0, columnspan=2, sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
         btn_frame.grid(row=13, column=2, sticky='e', pady=6, padx=6)
         help_lbl = tk.Label(btn_frame, text='?', cursor='hand2')
@@ -773,7 +773,7 @@ class App(tk.Tk):
         except subprocess.TimeoutExpired:
             self.status_var.set('Preview timed out.')
         except Exception as e:
-            self.status_var.set(str(e)[:60])
+            self._set_status_error(str(e))
 
     def _refresh_wire_preview(self, text, font_path, size, tape_cfg):
         """Preview path for wire labels — renders in-process."""
@@ -839,6 +839,35 @@ class App(tk.Tk):
         self._preview_scroll.pack_forget()
         self._preview_canvas.create_text(
             250, 40, text=msg, fill='#888', anchor='center')
+
+    def _set_status_error(self, full_msg):
+        """Show an error in the status bar (truncated) with a tooltip for the full text."""
+        import sys as _sys
+        print(f'CubePrint error: {full_msg}', file=_sys.stderr)
+        short = full_msg[:80]
+        self.status_var.set(short)
+        # Attach/update a tooltip on the status label
+        self._status_tooltip_msg = full_msg
+        self._status_lbl.bind('<Enter>', self._show_status_tooltip)
+        self._status_lbl.bind('<Leave>', self._hide_status_tooltip)
+
+    def _show_status_tooltip(self, event=None):
+        msg = getattr(self, '_status_tooltip_msg', None)
+        if not msg:
+            return
+        x = self._status_lbl.winfo_rootx()
+        y = self._status_lbl.winfo_rooty() + self._status_lbl.winfo_height() + 2
+        self._tooltip_win = tw = tk.Toplevel(self)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f'+{x}+{y}')
+        tk.Label(tw, text=msg, background='#ffffe0', relief='solid', borderwidth=1,
+                 wraplength=500, justify='left', padx=4, pady=2).pack()
+
+    def _hide_status_tooltip(self, event=None):
+        tw = getattr(self, '_tooltip_win', None)
+        if tw:
+            tw.destroy()
+            self._tooltip_win = None
 
     # ── print ─────────────────────────────────────────────────────────────────
 
