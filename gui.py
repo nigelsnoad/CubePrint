@@ -168,6 +168,116 @@ def _run_print(args_list):
         return r.returncode, r.stdout, r.stderr
 
 
+# ── wire label renderer ──────────────────────────────────────────────────────
+
+def render_wire_label_image(text, font_path, font_size, total_mm=22.0,
+                             tape_width_mm=12, margin_mm=0.5):
+    """Render a wire-wrap label image in display orientation.
+
+    Text is drawn perpendicular to the tape run (rotated 90°):
+    - Left block  → CCW (reads bottom-to-top when label is horizontal)
+    - Right block → CW  (reads top-to-bottom)
+
+    Returns a PIL Image (RGB, white background) ready to save as a PNG and
+    pass to read_png / bt_serial, the same as a normal label image.
+    """
+    from PIL import ImageFont, ImageDraw
+    DPI = 180
+
+    # Tape geometry — matches printlabel.py conventions
+    printable_h  = round(tape_width_mm * 64 / 12)
+    tape_h       = round(tape_width_mm * 86 / 12)
+    img_h        = tape_h + 2
+    print_border = (img_h - printable_h) / 2
+
+    # Top/bottom margin within the printable area
+    margin_dots  = max(0, round(margin_mm * DPI / 25.4))
+    text_area_h  = max(4, printable_h - 2 * margin_dots)  # px available in tape direction
+
+    # Total label length in dots
+    total_dots = max(4, round(total_mm * DPI / 25.4))
+
+    font = ImageFont.truetype(font_path, font_size)
+
+    # ── auto-wrap ──────────────────────────────────────────────────────────────
+    # After 90° rotation, a line's *width* (upright) becomes its *height* in the
+    # tape direction, so each line must have width ≤ text_area_h.
+    def _wrap(raw, max_px):
+        result = []
+        for para in raw.replace('\\n', '\n').split('\n'):
+            words = para.split()
+            if not words:
+                result.append('')
+                continue
+            current, current_w = [], 0
+            for word in words:
+                bb = font.getbbox(word, anchor='lt')
+                ww = bb[2] - bb[0]
+                sp = (font.getbbox(' ', anchor='lt')[2]) if current else 0
+                if current and current_w + sp + ww > max_px:
+                    result.append(' '.join(current))
+                    current, current_w = [word], ww
+                else:
+                    current.append(word)
+                    current_w += sp + ww
+            if current:
+                result.append(' '.join(current))
+        return result or ['']
+
+    lines = _wrap(text, text_area_h)
+
+    # ── measure upright text block ─────────────────────────────────────────────
+    line_bboxes = [font.getbbox(l, anchor='lt') if l.strip()
+                   else (0, 0, 0, font_size) for l in lines]
+    max_lw   = max(bb[2] - bb[0] for bb in line_bboxes) if line_bboxes else 0
+    line_h   = max(bb[3] - bb[1] for bb in line_bboxes) if line_bboxes else font_size
+    spacing  = round(line_h * 1.1)
+    block_h  = spacing * (len(lines) - 1) + line_h if lines else 0
+
+    # After rotation: max_lw → tape direction; block_h → label direction
+
+    # ── draw text upright on a scratch canvas ──────────────────────────────────
+    cw = max(max_lw + 2, 1)
+    ch = max(block_h + 2, 1)
+    scratch = Image.new('RGB', (cw, ch), 'white')
+    draw    = ImageDraw.Draw(scratch)
+    y_off   = 1
+    for line in lines:
+        if line.strip():
+            draw.text((1, y_off), line, font=font, fill='black', anchor='lt')
+        y_off += spacing
+
+    # ── rotate ────────────────────────────────────────────────────────────────
+    left_block  = scratch.rotate( 90, expand=True)   # CCW — reads up
+    right_block = scratch.rotate(-90, expand=True)   # CW  — reads down
+
+    # Clip to text_area_h in tape direction (safety)
+    def _clip(img, max_h):
+        if img.height > max_h:
+            top = (img.height - max_h) // 2
+            return img.crop((0, top, img.width, top + max_h))
+        return img
+
+    left_block  = _clip(left_block,  text_area_h)
+    right_block = _clip(right_block, text_area_h)
+
+    # ── compose label ─────────────────────────────────────────────────────────
+    label = Image.new('RGB', (total_dots, img_h), 'white')
+
+    def _y_pos(bh):
+        return round(print_border + margin_dots + (text_area_h - bh) / 2)
+
+    PAD = 2   # px gap from tape ends
+
+    label.paste(left_block,  (PAD, _y_pos(left_block.height)))
+
+    rx = total_dots - right_block.width - PAD
+    if rx >= 0:
+        label.paste(right_block, (rx, _y_pos(right_block.height)))
+
+    return label
+
+
 # ── main app ──────────────────────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -197,11 +307,13 @@ class App(tk.Tk):
         self._photo       = None   # keep ref to prevent GC
         self._print_png   = None   # path reused by Print button
         self._printing    = False
-        self.bold_var     = tk.BooleanVar(value=False)
-        self.italic_var   = tk.BooleanVar(value=False)
-        self.length_var   = tk.StringVar(value='')
-        self.margin_var   = tk.StringVar(value='')
-        self.tmpl_var     = tk.StringVar(value='')
+        self.bold_var        = tk.BooleanVar(value=False)
+        self.italic_var      = tk.BooleanVar(value=False)
+        self.length_var      = tk.StringVar(value='')
+        self.margin_var      = tk.StringVar(value='')
+        self.wire_var        = tk.BooleanVar(value=False)
+        self.wire_length_var = tk.StringVar(value='22')
+        self.tmpl_var        = tk.StringVar(value='')
         self._templates   = self._load_templates()
 
         self._build()
@@ -310,16 +422,28 @@ class App(tk.Tk):
         self.length_var.trace_add('write', lambda *_: self._schedule_preview())
         self.margin_var.trace_add('write', lambda *_: self._schedule_preview())
 
+        # --- Wire label mode ---
+        wire_row = ttk.Frame(outer)
+        wire_row.grid(row=10, column=0, columnspan=3, sticky='w', **P)
+        ttk.Checkbutton(wire_row, text='Wire Label', variable=self.wire_var,
+                        command=self._on_wire_toggle).pack(side='left')
+        ttk.Label(wire_row, text='  Total length (mm):').pack(side='left')
+        self.wire_length_entry = ttk.Entry(wire_row, textvariable=self.wire_length_var,
+                                           width=6, state='disabled')
+        self.wire_length_entry.pack(side='left')
+        ttk.Label(wire_row, text='  (text rotated 90° at each end)').pack(side='left')
+        self.wire_length_var.trace_add('write', lambda *_: self._schedule_preview())
+
         # --- Separator ---
         ttk.Separator(outer, orient='horizontal').grid(
-            row=10, column=0, columnspan=3, sticky='ew', pady=6)
+            row=11, column=0, columnspan=3, sticky='ew', pady=6)
 
         # --- Preview ---
         PREVIEW_MAX_W = 500
-        ttk.Label(outer, text='Preview:').grid(row=11, column=0, sticky='ne',
+        ttk.Label(outer, text='Preview:').grid(row=12, column=0, sticky='ne',
                                                padx=6, pady=3)
         preview_outer = ttk.Frame(outer, relief='sunken', borderwidth=1)
-        preview_outer.grid(row=11, column=1, columnspan=2, sticky='ew',
+        preview_outer.grid(row=12, column=1, columnspan=2, sticky='ew',
                            padx=0, pady=3)
         self._preview_canvas = tk.Canvas(preview_outer, background='white',
                                          width=PREVIEW_MAX_W, height=80,
@@ -332,9 +456,9 @@ class App(tk.Tk):
         # --- Status + print ---
         self.status_var = tk.StringVar(value='Ready.')
         ttk.Label(outer, textvariable=self.status_var, width=30).grid(
-                  row=12, column=0, columnspan=2, sticky='w', padx=6, pady=6)
+                  row=13, column=0, columnspan=2, sticky='w', padx=6, pady=6)
         btn_frame = ttk.Frame(outer)
-        btn_frame.grid(row=12, column=2, sticky='e', pady=6, padx=6)
+        btn_frame.grid(row=13, column=2, sticky='e', pady=6, padx=6)
         help_lbl = tk.Label(btn_frame, text='?', cursor='hand2')
         help_lbl.pack(side='left', padx=(0, 8))
         help_lbl.bind('<Button-1>', lambda _: self._open_help())
@@ -398,26 +522,32 @@ class App(tk.Tk):
 
     def _current_settings(self):
         return {
-            'tape':   self.tape_var.get(),
-            'font':   self.font_var.get(),
-            'bold':   self.bold_var.get(),
-            'italic': self.italic_var.get(),
-            'size':   self.size_var.get(),
-            'length': self.length_var.get(),
-            'margin': self.margin_var.get(),
-            'text':   self.text_var.get(),
+            'tape':        self.tape_var.get(),
+            'font':        self.font_var.get(),
+            'bold':        self.bold_var.get(),
+            'italic':      self.italic_var.get(),
+            'size':        self.size_var.get(),
+            'length':      self.length_var.get(),
+            'margin':      self.margin_var.get(),
+            'text':        self.text_var.get(),
+            'wire_label':  self.wire_var.get(),
+            'wire_length': self.wire_length_var.get(),
         }
 
     def _apply_settings(self, s):
-        if 'tape' in s:   self.tape_var.set(s['tape'])
-        if 'font' in s and s['font'] in self._font_map:
+        if 'tape'   in s: self.tape_var.set(s['tape'])
+        if 'font'   in s and s['font'] in self._font_map:
             self.font_var.set(s['font'])
-        if 'bold'   in s: self.bold_var.set(s['bold'])
-        if 'italic' in s: self.italic_var.set(s['italic'])
-        if 'size'   in s: self.size_var.set(str(s['size']))
-        if 'length' in s: self.length_var.set(s['length'])
-        if 'margin' in s: self.margin_var.set(s['margin'])
-        if 'text'   in s: self.text_var.set(s['text'])
+        if 'bold'        in s: self.bold_var.set(s['bold'])
+        if 'italic'      in s: self.italic_var.set(s['italic'])
+        if 'size'        in s: self.size_var.set(str(s['size']))
+        if 'length'      in s: self.length_var.set(s['length'])
+        if 'margin'      in s: self.margin_var.set(s['margin'])
+        if 'text'        in s: self.text_var.set(s['text'])
+        if 'wire_label'  in s: self.wire_var.set(s['wire_label'])
+        if 'wire_length' in s: self.wire_length_var.set(s['wire_length'])
+        # Keep the wire length entry state in sync
+        self._on_wire_toggle()
         self._schedule_preview()
 
     def _on_tmpl_load(self):
@@ -575,6 +705,13 @@ class App(tk.Tk):
         self.font_search.set('')
         self._schedule_preview()
 
+    # ── wire label toggle ─────────────────────────────────────────────────────
+
+    def _on_wire_toggle(self):
+        state = 'normal' if self.wire_var.get() else 'disabled'
+        self.wire_length_entry.configure(state=state)
+        self._schedule_preview()
+
     # ── preview ───────────────────────────────────────────────────────────────
 
     def _schedule_preview(self, delay=350):
@@ -584,11 +721,12 @@ class App(tk.Tk):
 
     def _refresh_preview(self):
         self._after_id = None
-        text      = self.text_var.get().strip()
+
         font_name = self.font_var.get()
         font_path = self._font_map.get(font_name)
         tape_name = self.tape_var.get()
         tape_cfg  = dict(TAPE_PRESETS)[tape_name]
+        text      = self.text_var.get().strip()
 
         try:
             size = int(self.size_var.get())
@@ -605,6 +743,10 @@ class App(tk.Tk):
             tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
             self._print_png = tmp.name
             tmp.close()
+
+        if self.wire_var.get():
+            self._refresh_wire_preview(text, font_path, size, tape_cfg)
+            return
 
         try:
             rc, stdout_txt, stderr_txt = _run_render(
@@ -624,44 +766,71 @@ class App(tk.Tk):
             warning = next((l for l in stderr_txt.splitlines() if 'WARNING' in l), None)
 
             img = Image.open(self._print_png)
-
-            # Scale up to a target height while keeping integer pixels
-            target_h = 96
-            scale = max(1, target_h // img.height)
-            display_w = img.width * scale
-            display_h = img.height * scale
-            display = img.convert('RGB').resize((display_w, display_h), Image.NEAREST)
-
-            # Tape-coloured background border
-            bord = 10
-            bg = (255, 255, 180) if tape_cfg['tape_width'] == 6 else (255, 255, 255)
-            canvas = Image.new('RGB',
-                               (display_w + 2 * bord, display_h + 2 * bord), bg)
-            canvas.paste(display, (bord, bord))
-
-            self._photo = ImageTk.PhotoImage(canvas)
-            self._preview_canvas.configure(height=canvas.height)
-            self._preview_canvas.delete('all')
-            self._preview_canvas.create_image(0, 0, anchor='nw', image=self._photo)
-            self._preview_canvas.configure(scrollregion=(0, 0, canvas.width, canvas.height))
-            # show scrollbar only when image is wider than canvas
-            if canvas.width > self._preview_canvas.winfo_width():
-                self._preview_scroll.pack(side='top', fill='x')
-            else:
-                self._preview_scroll.pack_forget()
-
-            length_mm = img.width * 25.4 / 180
-            if warning:
-                self.status_var.set(('⚠ ' + warning.replace('WARNING: ', ''))[:70])
-            else:
-                self.status_var.set(
-                    f'{tape_cfg["tape_width"]}mm tape  ·  ~{length_mm:.0f}mm long'
-                    f'  ({img.width}×{img.height} px)')
+            self._show_preview_image(img, tape_cfg, warning)
 
         except subprocess.TimeoutExpired:
             self.status_var.set('Preview timed out.')
         except Exception as e:
             self.status_var.set(str(e)[:60])
+
+    def _refresh_wire_preview(self, text, font_path, size, tape_cfg):
+        """Preview path for wire labels — renders in-process."""
+        try:
+            total_mm = float(self.wire_length_var.get() or '22')
+        except ValueError:
+            total_mm = 22.0
+        try:
+            margin_mm = float(self.margin_var.get() or '0.5')
+        except ValueError:
+            margin_mm = 0.5
+        try:
+            img = render_wire_label_image(
+                text, font_path, size,
+                total_mm=total_mm,
+                tape_width_mm=tape_cfg['tape_width'],
+                margin_mm=margin_mm,
+            )
+        except Exception as e:
+            self.status_var.set(str(e)[:60])
+            return
+
+        img.save(self._print_png)
+        self._show_preview_image(img, tape_cfg, None,
+                                 extra=f'wire label  ·  {total_mm:.0f}mm  ·  text at both ends')
+
+    def _show_preview_image(self, img, tape_cfg, warning, extra=None):
+        """Scale img, frame it and display in the preview canvas."""
+        target_h = 96
+        scale    = max(1, target_h // img.height)
+        display  = img.convert('RGB').resize(
+            (img.width * scale, img.height * scale), Image.NEAREST)
+
+        bord = 10
+        bg   = (255, 255, 180) if tape_cfg['tape_width'] == 6 else (255, 255, 255)
+        canvas = Image.new('RGB',
+                           (display.width + 2 * bord, display.height + 2 * bord), bg)
+        canvas.paste(display, (bord, bord))
+
+        self._photo = ImageTk.PhotoImage(canvas)
+        self._preview_canvas.configure(height=canvas.height)
+        self._preview_canvas.delete('all')
+        self._preview_canvas.create_image(0, 0, anchor='nw', image=self._photo)
+        self._preview_canvas.configure(
+            scrollregion=(0, 0, canvas.width, canvas.height))
+        if canvas.width > self._preview_canvas.winfo_width():
+            self._preview_scroll.pack(side='top', fill='x')
+        else:
+            self._preview_scroll.pack_forget()
+
+        length_mm = img.width * 25.4 / 180
+        if warning:
+            self.status_var.set(('⚠ ' + warning.replace('WARNING: ', ''))[:70])
+        elif extra:
+            self.status_var.set(f'{tape_cfg["tape_width"]}mm {extra}')
+        else:
+            self.status_var.set(
+                f'{tape_cfg["tape_width"]}mm tape  ·  ~{length_mm:.0f}mm long'
+                f'  ({img.width}×{img.height} px)')
 
     def _set_preview_text(self, msg):
         self._preview_canvas.delete('all')
@@ -775,6 +944,17 @@ class App(tk.Tk):
             self.print_btn.configure(state='normal')
             self.file_btn.configure(state='normal')
 
+        # Capture wire settings before entering thread
+        is_wire = self.wire_var.get()
+        try:
+            wire_total_mm = float(self.wire_length_var.get() or '22')
+        except ValueError:
+            wire_total_mm = 22.0
+        try:
+            wire_margin_mm = float(self.margin_var.get() or '0.5')
+        except ValueError:
+            wire_margin_mm = 0.5
+
         def worker():
             try:
                 for i, text in enumerate(labels, 1):
@@ -784,14 +964,28 @@ class App(tk.Tk):
                     png = tmp.name
                     tmp.close()
                     try:
-                        rc, _out, err_txt = _run_render(
-                            [PRINTLABEL,
-                             '--tape-width', str(tape_cfg['tape_width']),
-                             '--fixed-font-size', str(size),
-                             *self._length_args(),
-                             *self._margin_args(),
-                             '-n', '-S', png,
-                             '/dev/null', font_path, text])
+                        if is_wire:
+                            # Wire label: render in-process
+                            try:
+                                wimg = render_wire_label_image(
+                                    text, font_path, size,
+                                    total_mm=wire_total_mm,
+                                    tape_width_mm=tape_cfg['tape_width'],
+                                    margin_mm=wire_margin_mm,
+                                )
+                                wimg.save(png)
+                                rc, err_txt = 0, ''
+                            except Exception as e:
+                                rc, err_txt = 1, str(e)
+                        else:
+                            rc, _out, err_txt = _run_render(
+                                [PRINTLABEL,
+                                 '--tape-width', str(tape_cfg['tape_width']),
+                                 '--fixed-font-size', str(size),
+                                 *self._length_args(),
+                                 *self._margin_args(),
+                                 '-n', '-S', png,
+                                 '/dev/null', font_path, text])
                         if rc != 0:
                             err = err_txt.strip().splitlines()
                             msg = (err[-1] if err else 'Render error')[:60]

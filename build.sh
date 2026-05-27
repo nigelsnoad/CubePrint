@@ -53,9 +53,7 @@ if $DO_SIGN; then
 fi
 
 if $DO_NOTARISE; then
-    : "${APPLE_ID:?Set APPLE_ID to your Apple ID email}"
-    : "${APP_PASSWORD:?Set APP_PASSWORD to an app-specific password}"
-    : "${TEAM_ID:?Set TEAM_ID to your 10-character team ID}"
+    NOTARY_PROFILE="${NOTARY_PROFILE:-CubePrint}"
 
     ZIP="dist/CubePrint.zip"
     echo "==> Zipping for notarisation..."
@@ -63,9 +61,7 @@ if $DO_NOTARISE; then
 
     echo "==> Submitting to Apple for notarisation (this may take a minute)..."
     xcrun notarytool submit "$ZIP" \
-        --apple-id "$APPLE_ID" \
-        --password "$APP_PASSWORD" \
-        --team-id "$TEAM_ID" \
+        --keychain-profile "$NOTARY_PROFILE" \
         --wait
 
     echo "==> Stapling notarisation ticket..."
