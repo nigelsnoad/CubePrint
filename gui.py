@@ -178,12 +178,16 @@ def _run_print(args_list):
 # ── wire label renderer ──────────────────────────────────────────────────────
 
 def render_wire_label_image(text, font_path, font_size, total_mm=22.0,
-                             tape_width_mm=12, margin_mm=0.5):
+                             tape_width_mm=12, cut_gap_mm=0.0):
     """Render a wire-wrap label image in display orientation.
 
     Text is drawn perpendicular to the tape run (rotated 90°):
     - Left block  → CCW (reads bottom-to-top when label is horizontal)
     - Right block → CW  (reads top-to-bottom)
+
+    cut_gap_mm adds blank space at both the left and right ends of the label
+    image so there is room to cut cleanly before and after.  The printer's
+    natural non-printable border is sufficient for top/bottom clearance.
 
     Returns a PIL Image (RGB, white background) ready to save as a PNG and
     pass to read_png / bt_serial, the same as a normal label image.
@@ -197,9 +201,8 @@ def render_wire_label_image(text, font_path, font_size, total_mm=22.0,
     img_h        = tape_h + 2
     print_border = (img_h - printable_h) / 2
 
-    # Top/bottom margin within the printable area
-    margin_dots  = max(0, round(margin_mm * DPI / 25.4))
-    text_area_h  = max(4, printable_h - 2 * margin_dots)  # px available in tape direction
+    # No internal top/bottom margin — printer border is enough
+    text_area_h  = max(4, printable_h)
 
     # Total label length in dots
     total_dots = max(4, round(total_mm * DPI / 25.4))
@@ -272,9 +275,10 @@ def render_wire_label_image(text, font_path, font_size, total_mm=22.0,
     label = Image.new('RGB', (total_dots, img_h), 'white')
 
     def _y_pos(bh):
-        return round(print_border + margin_dots + (text_area_h - bh) / 2)
+        return round(print_border + (text_area_h - bh) / 2)
 
-    PAD = 2   # px gap from tape ends
+    # Cut gap at both ends (minimum 2 px so blocks are never flush to the edge)
+    PAD = max(2, round(cut_gap_mm * DPI / 25.4))
 
     label.paste(left_block,  (PAD, _y_pos(left_block.height)))
 
@@ -797,7 +801,7 @@ class App(tk.Tk):
                 text, font_path, size,
                 total_mm=total_mm,
                 tape_width_mm=tape_cfg['tape_width'],
-                margin_mm=margin_mm,
+                cut_gap_mm=margin_mm,
             )
         except Exception as e:
             self.status_var.set(str(e)[:60])
@@ -1013,7 +1017,7 @@ class App(tk.Tk):
                                     text, font_path, size,
                                     total_mm=wire_total_mm,
                                     tape_width_mm=tape_cfg['tape_width'],
-                                    margin_mm=wire_margin_mm,
+                                    cut_gap_mm=wire_margin_mm,
                                 )
                                 wimg.save(png)
                                 rc, err_txt = 0, ''
